@@ -5,6 +5,8 @@
 #include "CommandRouter.generated.h"
 
 class UDroneCommandHandler;
+class UTurretCommandHandler;
+class UGuidanceCommandHandler;
 
 /**
  * TCP 命令路由器
@@ -32,6 +34,7 @@ private:
     FString HandleSimResume(UWorld* World);
     FString HandleSimReset(UWorld* World);
     FString HandleGetAgentList();
+    FString HandleGetImage(UWorld* World);
 
     // ---- 工具方法 ----
     FString MakeErrorResponse(const FString& Error);
@@ -39,4 +42,10 @@ private:
 
     UPROPERTY()
     UDroneCommandHandler* DroneHandler = nullptr;
+
+    UPROPERTY()
+    UTurretCommandHandler* TurretHandler = nullptr;
+
+    UPROPERTY()
+    UGuidanceCommandHandler* GuidanceHandler = nullptr;
 };

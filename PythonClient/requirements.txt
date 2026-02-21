@@ -1,0 +1,5 @@
+numpy>=1.24
+pandas>=2.0
+matplotlib>=3.7
+opencv-python>=4.8
+# YOLO26 使用本地 ultralytics-main 源码，无需 pip 安装

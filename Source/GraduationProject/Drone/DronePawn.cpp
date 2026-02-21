@@ -123,9 +123,13 @@ void ADronePawn::SetTargetPosition(const FVector& TargetPos)
 {
     if (MovementComp)
     {
-        MovementComp->SetControlMode(EDroneControlMode::Position);
+        // 只在模式变化时才切换（避免清零 PID 积分器导致推力丢失）
+        if (ControlMode != EDroneControlMode::Position)
+        {
+            MovementComp->SetControlMode(EDroneControlMode::Position);
+            ControlMode = EDroneControlMode::Position;
+        }
         MovementComp->SetTargetPosition(TargetPos);
-        ControlMode = EDroneControlMode::Position;
     }
 }
 
@@ -133,9 +137,13 @@ void ADronePawn::SetTargetVelocity(const FVector& TargetVel)
 {
     if (MovementComp)
     {
-        MovementComp->SetControlMode(EDroneControlMode::Velocity);
+        // 只在模式变化时才切换（避免清零 PID 积分器）
+        if (ControlMode != EDroneControlMode::Velocity)
+        {
+            MovementComp->SetControlMode(EDroneControlMode::Velocity);
+            ControlMode = EDroneControlMode::Velocity;
+        }
         MovementComp->SetTargetVelocity(TargetVel);
-        ControlMode = EDroneControlMode::Velocity;
     }
 }
 

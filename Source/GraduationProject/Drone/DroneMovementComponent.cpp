@@ -55,7 +55,7 @@ void UDroneMovementComponent::InitializeControllers()
     double Ts = Parameters.TimeStep;
 
     float PosPGain = 1.0f;
-    float VelMaxLimit = 5.0f;
+    float VelMaxLimit = 2.0f;  // 最大速度命令 m/s（降低以减少激进倾斜）
     
     PxController = NewObject<UPDController>(this);
     PxController->Initialize(PosPGain, 0.0, 0.0, VelMaxLimit, Ts);
@@ -66,17 +66,17 @@ void UDroneMovementComponent::InitializeControllers()
     PzController = NewObject<UPDController>(this);
     PzController->Initialize(PosPGain, 0.0, 0.0, VelMaxLimit, Ts);
 
-    float VelPGain = 6.0f;
+    float VelPGain = 2.0f;
     float VelDGain = 0.0f;
     
     VxController = NewObject<UPIDController>(this);
-    VxController->Initialize(VelPGain, 0.5, VelDGain, 0.05, 10.0, Ts, -20.0, 20.0);
+    VxController->Initialize(VelPGain, 0.2, VelDGain, 0.05, 3.0, Ts, -5.0, 5.0);
     
     VyController = NewObject<UPIDController>(this);
-    VyController->Initialize(VelPGain, 0.5, VelDGain, 0.05, 10.0, Ts, -20.0, 20.0);
+    VyController->Initialize(VelPGain, 0.2, VelDGain, 0.05, 3.0, Ts, -5.0, 5.0);
     
     VzController = NewObject<UPIDController>(this);
-    VzController->Initialize(VelPGain, 0.5, VelDGain, 0.05, 10.0, Ts, -20.0, 20.0);
+    VzController->Initialize(VelPGain, 0.2, VelDGain, 0.05, 3.0, Ts, -5.0, 5.0);
 
     float AnglePGain = 10.0f;
     float AngVelMaxLimit = 3.0f;
@@ -116,8 +116,8 @@ void UDroneMovementComponent::ComputeControlAllocation()
     G[0][0] = kT; G[0][1] = kT; G[0][2] = kT; G[0][3] = kT;
     // 滚转力矩行
     G[1][0] = kT*L*SinB; G[1][1] = -kT*L*SinB; G[1][2] = -kT*L*SinB; G[1][3] = kT*L*SinB;
-    // 俯仰力矩行
-    G[2][0] = -kT*L*CosB; G[2][1] = -kT*L*CosB; G[2][2] = kT*L*CosB; G[2][3] = kT*L*CosB;
+    // 俯仰力矩行（电机0,1在前方：高转速→机头抬起→正俯仰）
+    G[2][0] = kT*L*CosB; G[2][1] = kT*L*CosB; G[2][2] = -kT*L*CosB; G[2][3] = -kT*L*CosB;
     // 偏航力矩行
     G[3][0] = kQ; G[3][1] = -kQ; G[3][2] = kQ; G[3][3] = -kQ;
 
@@ -127,10 +127,10 @@ void UDroneMovementComponent::ComputeControlAllocation()
     double c = 1.0 / (4.0 * kT * L * CosB);
     double d = 1.0 / (4.0 * kQ);
 
-    GInv[0][0] = a; GInv[0][1] = b;  GInv[0][2] = -c; GInv[0][3] = d;
-    GInv[1][0] = a; GInv[1][1] = -b; GInv[1][2] = -c; GInv[1][3] = -d;
-    GInv[2][0] = a; GInv[2][1] = -b; GInv[2][2] = c;  GInv[2][3] = d;
-    GInv[3][0] = a; GInv[3][1] = b;  GInv[3][2] = c;  GInv[3][3] = -d;
+    GInv[0][0] = a; GInv[0][1] = b;  GInv[0][2] = c;  GInv[0][3] = d;
+    GInv[1][0] = a; GInv[1][1] = -b; GInv[1][2] = c;  GInv[1][3] = -d;
+    GInv[2][0] = a; GInv[2][1] = -b; GInv[2][2] = -c; GInv[2][3] = d;
+    GInv[3][0] = a; GInv[3][1] = b;  GInv[3][2] = -c; GInv[3][3] = -d;
 }
 
 // ========== 控制更新 ==========
@@ -187,8 +187,8 @@ void UDroneMovementComponent::ControlUpdate(double DeltaTime)
             double YawDes = FMath::DegreesToRadians(TargetAttitude.Yaw);
 
             FRotator CurrentRot = CurrentState.GetRotator();
-            double Roll = FMath::DegreesToRadians(CurrentRot.Roll);
-            double Pitch = FMath::DegreesToRadians(CurrentRot.Pitch);
+            double Roll = -FMath::DegreesToRadians(CurrentRot.Roll);
+            double Pitch = -FMath::DegreesToRadians(CurrentRot.Pitch);
             double Yaw = FMath::DegreesToRadians(CurrentRot.Yaw);
 
             double RollTarget = Roll + NormalizeAngle(RollDes - Roll);
@@ -386,8 +386,20 @@ FVector UDroneMovementComponent::VelocityLoop(const FVector& VelocityCommand, do
     double AxCmd = VxController ? VxController->Update(VelocityCommand.X, Vel.X) : 0.0;
     double AyCmd = VyController ? VyController->Update(VelocityCommand.Y, Vel.Y) : 0.0;
     double AzCmd = VzController ? VzController->Update(VelocityCommand.Z, Vel.Z) : 0.0;
+
     OutThrust = Parameters.Mass * (AzCmd + Parameters.Gravity);
     OutThrust = FMath::Max(0.0, OutThrust);
+
+    // 推力-姿态补偿：倾斜时垂直推力分量减小，需要增大总推力
+    FRotator CurrentRot = CurrentState.GetRotator();
+    double CosRoll = FMath::Cos(FMath::DegreesToRadians(CurrentRot.Roll));
+    double CosPitch = FMath::Cos(FMath::DegreesToRadians(CurrentRot.Pitch));
+    double CosAttitude = CosRoll * CosPitch;
+    if (CosAttitude > 0.5)  // 安全限制：倾斜超过60°不再补偿
+    {
+        OutThrust /= CosAttitude;
+    }
+
     return FVector(AxCmd, AyCmd, AzCmd);
 }
 
@@ -396,15 +408,18 @@ FVector UDroneMovementComponent::AttitudeLoop(const FVector& AccelerationCommand
     double AxDes = AccelerationCommand.X;
     double AyDes = AccelerationCommand.Y;
     double g = Parameters.Gravity;
-    double RollDes = FMath::Atan2(AyDes, g);
-    double PitchDes = FMath::Atan2(-AxDes, g);
+    double RollDes = FMath::Atan2(-AyDes, g);      // 取反：正 AyDes(右移) 需要正 FRotator.Roll = 负控制器 Roll
+    double PitchDes = FMath::Atan2(AxDes, g);     // UE FRotator 符号与动力学四元数相反，需要去掉负号
     double YawDes = FMath::DegreesToRadians(TargetAttitude.Yaw);
-    RollDes = FMath::Clamp(RollDes, -0.5, 0.5);   // ±28.6°
-    PitchDes = FMath::Clamp(PitchDes, -0.5, 0.5);
+    RollDes = FMath::Clamp(RollDes, -0.3, 0.3);   // ±17.2°（避免过度倾斜导致推力损失）
+    PitchDes = FMath::Clamp(PitchDes, -0.3, 0.3);
 
     FRotator CurrentRot = CurrentState.GetRotator();
-    double Roll = FMath::DegreesToRadians(CurrentRot.Roll);
-    double Pitch = FMath::DegreesToRadians(CurrentRot.Pitch);
+    // UE 的 FQuat::Rotator() 对 Roll/Pitch 的符号与动力学四元数传播方向相反
+    // 负 Qy → 正 FRotator.Pitch，负 Qx → 正 FRotator.Roll
+    // 取反以匹配动力学约定
+    double Roll = -FMath::DegreesToRadians(CurrentRot.Roll);
+    double Pitch = -FMath::DegreesToRadians(CurrentRot.Pitch);
     double Yaw = FMath::DegreesToRadians(CurrentRot.Yaw);
 
     double RollTarget = Roll + NormalizeAngle(RollDes - Roll);
@@ -477,16 +492,16 @@ void UDroneMovementComponent::ResetAllControllers()
 
 void UDroneMovementComponent::SetPositionGains(float Kp, float Kd)
 {
-    if (PxController) PxController->SetParameters(Kp, Kd, 0.0, 5.0);
-    if (PyController) PyController->SetParameters(Kp, Kd, 0.0, 5.0);
-    if (PzController) PzController->SetParameters(Kp, Kd, 0.0, 5.0);
+    if (PxController) PxController->SetParameters(Kp, Kd, 0.0, 2.0);
+    if (PyController) PyController->SetParameters(Kp, Kd, 0.0, 2.0);
+    if (PzController) PzController->SetParameters(Kp, Kd, 0.0, 2.0);
 }
 
 void UDroneMovementComponent::SetVelocityGains(float Kp, float Ki, float Kd)
 {
-    if (VxController) VxController->SetParameters(Kp, Ki, Kd, 0.05, 10.0);
-    if (VyController) VyController->SetParameters(Kp, Ki, Kd, 0.05, 10.0);
-    if (VzController) VzController->SetParameters(Kp, Ki, Kd, 0.05, 10.0);
+    if (VxController) VxController->SetParameters(Kp, Ki, Kd, 0.05, 3.0);
+    if (VyController) VyController->SetParameters(Kp, Ki, Kd, 0.05, 3.0);
+    if (VzController) VzController->SetParameters(Kp, Ki, Kd, 0.05, 3.0);
 }
 
 void UDroneMovementComponent::SetAttitudeGains(float Kp, float Kd)
