@@ -135,12 +135,15 @@ def collect(args):
 
         target_x = tx + R * dist_ratio * math.cos(rad)
         target_y = ty + R * dist_ratio * math.sin(rad)
+        print(f"  [step {step}] 移动无人机 -> ({target_x/100:.1f}, {target_y/100:.1f}, {alt:.1f})")
         client.drone_move_to(target_x / 100, target_y / 100, alt, 3.0)
         time.sleep(2.5)
 
         # 获取图像 + 相机参数
+        print(f"  [step {step}] 请求图像...")
         resp = client._send({"get_image": {}})
         if resp.get("status") != "ok":
+            print(f"  [step {step}] ✗ get_image 失败: {resp}")
             step += 1
             continue
 
@@ -148,18 +151,21 @@ def collect(args):
         drone_state = client.drone_state()
         drone_pos = drone_state.get("position", None)
         if not drone_pos:
+            print(f"  [step {step}] ✗ 获取无人机位置失败: {drone_state}")
             step += 1
             continue
 
         # 解码图像
         b64 = resp.get("data", "")
         if not b64:
+            print(f"  [step {step}] ✗ 图像 data 为空")
             step += 1
             continue
 
         img_data = base64.b64decode(b64)
         img = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
         if img is None:
+            print(f"  [step {step}] ✗ cv2.imdecode 失败 (数据长度={len(img_data)})")
             step += 1
             continue
 
@@ -168,15 +174,20 @@ def collect(args):
         cam_pos = resp.get("camera_pos", [0, 0, 0])
         cam_rot = resp.get("camera_rot", [0, 0, 0])
         fov = resp.get("fov", 90.0)
+        print(f"  [step {step}] 图像 {img_w}x{img_h}, cam_pos={cam_pos}, cam_rot={cam_rot}, fov={fov}")
 
-        # 3D → 2D 投影
-        result = project_3d_to_2d(drone_pos, cam_pos, cam_rot, fov, img_w, img_h)
+        # 3D → 2D 投影（drone_pos 单位是米，cam_pos 单位是厘米，需要统一）
+        drone_pos_cm = [p * 100 for p in drone_pos]
+        print(f"  [step {step}] drone_pos_cm={drone_pos_cm}")
+        result = project_3d_to_2d(drone_pos_cm, cam_pos, cam_rot, fov, img_w, img_h)
         if result is None:
+            print(f"  [step {step}] ✗ 无人机不在视野内 (投影失败)")
             step += 1
-            continue  # 无人机不在视野内
+            continue
 
         u, v, depth = result
         if depth < 50:  # 太近跳过
+            print(f"  [step {step}] ✗ 太近 depth={depth:.0f}cm")
             step += 1
             continue
 
@@ -185,6 +196,7 @@ def collect(args):
 
         # 检查 bbox 合理性
         if bw < 5 or bh < 3 or bw > img_w * 0.8 or bh > img_h * 0.8:
+            print(f"  [step {step}] ✗ bbox 不合理 ({bw:.0f}x{bh:.0f}) depth={depth:.0f}cm")
             step += 1
             continue
 
@@ -197,8 +209,7 @@ def collect(args):
         save_yolo_label(lbl_path, 0, u, v, bw, bh, img_w, img_h)
 
         saved += 1
-        if saved % 20 == 0:
-            print(f"  [{saved}/{args.num}] depth={depth:.0f}cm bbox=({bw:.0f}x{bh:.0f})")
+        print(f"  [step {step}] ✓ 保存 #{saved}/{args.num} depth={depth:.0f}cm bbox=({bw:.0f}x{bh:.0f}) uv=({u:.0f},{v:.0f})")
 
         step += 1
 

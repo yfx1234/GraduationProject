@@ -38,9 +38,18 @@ ATurretPawn::ATurretPawn()
     TurretSceneCapture->SetRelativeLocation(MuzzleOffset);
     // 枪管方向是 -X (MuzzleOffset.X=-249)，旋转180°朝外看
     TurretSceneCapture->SetRelativeRotation(FRotator(0.0f, 180.0f, 0.0f));
-    TurretSceneCapture->bCaptureEveryFrame = false;
+    TurretSceneCapture->bCaptureEveryFrame = true;   // 每帧捕获，让自动曝光收敛
     TurretSceneCapture->bCaptureOnMovement = false;
+    TurretSceneCapture->bAlwaysPersistRenderingState = true;  // 持久化渲染状态（曝光等）
+    // FinalColorLDR = 完整后处理链 + gamma，与编辑器视口一致
     TurretSceneCapture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+
+    // CineCamera — 与 SceneCapture 同位置同朝向，用于继承场景 PostProcessVolume (仿 AirSim)
+    TurretCineCamera = CreateDefaultSubobject<UCineCameraComponent>(TEXT("TurretCineCamera"));
+    TurretCineCamera->SetupAttachment(GunMesh);
+    TurretCineCamera->SetRelativeLocation(MuzzleOffset);
+    TurretCineCamera->SetRelativeRotation(FRotator(0.0f, 180.0f, 0.0f));
+    TurretCineCamera->SetActive(false);  // 不实际渲染，只借用 PP 设置
 }
 
 void ATurretPawn::BeginPlay()
@@ -55,7 +64,7 @@ void ATurretPawn::BeginPlay()
 
     // 初始化 RenderTarget
     UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(this);
-    RT->InitAutoFormat(CameraWidth, CameraHeight);
+    RT->InitCustomFormat(CameraWidth, CameraHeight, PF_B8G8R8A8, false);  // 8-bit sRGB
     RT->ClearColor = FLinearColor::Black;
     TurretSceneCapture->TextureTarget = RT;
     TurretSceneCapture->FOVAngle = CameraFOV;
@@ -67,6 +76,9 @@ void ATurretPawn::BeginPlay()
 void ATurretPawn::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
+
+    // 同步 CineCamera 的 PostProcess 到 SceneCapture (仿 AirSim)
+    SyncPostProcessToCapture();
 
     // Yaw 角度平滑插值（处理 +-180 边界）
     float YawDiff = FRotator::NormalizeAxis(TargetYaw - CurrentYaw);
@@ -306,6 +318,8 @@ void ATurretPawn::DrawPredictionLine()
 
 FString ATurretPawn::CaptureImageBase64(int32 Quality)
 {
+    // 如果传入默认值(-1), 使用属性中的 JpegQuality
+    if (Quality <= 0) Quality = JpegQuality;
     if (!TurretSceneCapture || !TurretSceneCapture->TextureTarget)
         return TEXT("");
 
@@ -319,7 +333,8 @@ FString ATurretPawn::CaptureImageBase64(int32 Quality)
     int32 W = CameraWidth;
     int32 H = CameraHeight;
     Pixels.SetNum(W * H);
-    FReadSurfaceDataFlags ReadFlags(RCM_UNorm);
+    FReadSurfaceDataFlags ReadFlags(RCM_UNorm, CubeFace_MAX);
+    ReadFlags.SetLinearToGamma(false);  // LDR 已含 gamma，不做额外转换
     Resource->ReadPixels(Pixels, ReadFlags);
 
     // JPEG 编码
@@ -342,4 +357,28 @@ FString ATurretPawn::CaptureImageBase64(int32 Quality)
 
     auto JpegData = Wrapper->GetCompressed(Quality);
     return FBase64::Encode(JpegData.GetData(), JpegData.Num());
+}
+
+// ---- PP 同步 (仿 AirSim copyCameraSettingsToSceneCapture) ----
+
+void ATurretPawn::SyncPostProcessToCapture()
+{
+    if (!TurretCineCamera || !TurretSceneCapture) return;
+
+    // 获取 CineCamera 的视图信息 (包含场景 PostProcessVolume 叠加后的 PP 设置)
+    FMinimalViewInfo ViewInfo;
+    TurretCineCamera->GetCameraView(0.0f, ViewInfo);
+
+    // 保存 SceneCapture 自身的 Blendables (如有自定义后处理材质)
+    FWeightedBlendables SavedBlendables = TurretSceneCapture->PostProcessSettings.WeightedBlendables;
+
+    // 整体拷贝 PP 设置
+    TurretSceneCapture->PostProcessSettings = ViewInfo.PostProcessSettings;
+
+    // 恢复 Blendables
+    TurretSceneCapture->PostProcessSettings.WeightedBlendables = SavedBlendables;
+
+    // 叠加用户的曝光补偿 (在 CineCamera PP 基础上微调)
+    TurretSceneCapture->PostProcessSettings.bOverride_AutoExposureBias = true;
+    TurretSceneCapture->PostProcessSettings.AutoExposureBias += ExposureBias;
 }

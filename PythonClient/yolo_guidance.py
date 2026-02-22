@@ -249,7 +249,7 @@ class VisionGuidance:
                     time.sleep(0.1)
                     continue
 
-                img = self.hud.enhance_image(img, brightness=20, contrast=1.2)
+                # enhance_image 已移除 — SceneCapture 手动曝光后画面与编辑器一致
                 self.frame_count += 1
 
                 try:
@@ -281,8 +281,8 @@ class VisionGuidance:
                     self.client.guidance_update_target(float(pos[0]), float(pos[1]), float(pos[2]), 0.1)
                     aim = self.client.guidance_compute_aim(self.turret_id, self.muzzle_speed)
                     if aim.get("status") == "ok":
-                        pitch = aim["pitch"]
-                        yaw = aim["yaw"]
+                        pitch = aim.get("pitch", pitch)
+                        yaw = aim.get("yaw", yaw)
 
                 if auto_fire and tracking and self.frame_count % fire_interval == 0:
                     self.client.turret_fire(self.muzzle_speed, self.turret_id)

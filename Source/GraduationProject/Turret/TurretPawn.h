@@ -6,6 +6,7 @@
 #include "Components/SphereComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "CineCameraComponent.h"
 #include "TurretPawn.generated.h"
 
 class ABulletActor;
@@ -79,8 +80,12 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
     USceneCaptureComponent2D* TurretSceneCapture;
 
-    /** 采集一帧，返回 Base64 JPEG */
-    FString CaptureImageBase64(int32 Quality = 85);
+    /** CineCamera — 用于继承场景 PostProcessVolume 设置，再同步到 SceneCapture (仿 AirSim) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
+    UCineCameraComponent* TurretCineCamera;
+
+    /** 采集一帧，返回 Base64 JPEG (Quality<=0 时使用 JpegQuality 属性) */
+    FString CaptureImageBase64(int32 Quality = -1);
 
     // ---- 配置 ----
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Config")
@@ -103,10 +108,18 @@ public:
     float CameraFOV = 90.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
-    int32 CameraWidth = 640;
+    int32 CameraWidth = 1280;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
-    int32 CameraHeight = 480;
+    int32 CameraHeight = 720;
+
+    /** 曝光补偿 EV — 负值降低亮度, 正值提高亮度 (在 CineCamera PP 同步后叠加) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "-10.0", ClampMax = "10.0"))
+    float ExposureBias = 0.0f;
+
+    /** JPEG 压缩质量 (1~100, 越高画质越好, 传输越慢) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "1", ClampMax = "100"))
+    int32 JpegQuality = 90;
 
     // ---- 预测线配置 ----
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Prediction")
@@ -127,6 +140,8 @@ public:
 private:
     void SetupTurretMesh();
     void DrawPredictionLine();
+    /** 仿 AirSim copyCameraSettingsToSceneCapture — 将 CineCamera 的 PostProcess 同步到 SceneCapture */
+    void SyncPostProcessToCapture();
 
     float TargetPitch = 0.0f;
     float TargetYaw = 0.0f;

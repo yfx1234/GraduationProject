@@ -12,7 +12,8 @@ public class GraduationProject : ModuleRules
 			"Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput",
 			"Sockets", "Networking",
 			"Json", "JsonUtilities",
-			"RenderCore", "RHI", "ImageWrapper"
+			"RenderCore", "RHI", "ImageWrapper",
+			"CinematicCamera"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {
