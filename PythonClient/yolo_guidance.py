@@ -1,13 +1,6 @@
 """
-yolo_guidance.py — YOLO 视觉制导 + 无人机飞行控制
-
-管线:
-  后台线程: 无人机在转台 50m 范围内飞行
-  主线程: 转台摄像头 → YOLO → OpenCV 实时显示 → 制导 → 转台控制
-
 按键: q退出 f开火 m切换制导 1/2/3飞行模式 p预测线 t跟踪
 """
-
 import sys, os, time, math, argparse, threading
 import base64
 import numpy as np
@@ -22,11 +15,6 @@ for p in [os.path.join(SCRIPT_DIR, "..", "..", "Yolo", "ultralytics-main"),
 
 from ultralytics import YOLO
 from sim_client import SimClient
-
-
-# ============================================================
-#  无人机飞行控制（后台线程）
-# ============================================================
 
 class DroneController:
     def __init__(self, client, turret_pos, altitude=5.0, speed=2.0, radius=40.0):
@@ -92,27 +80,18 @@ class DroneController:
                 time.sleep(1)
         c.drone_hover()
 
-
-# ============================================================
-#  现代 HUD 绘制
-# ============================================================
-
 class HUDRenderer:
-    """轻量 HUD — 无背景面板，描边文字直接叠加"""
-
     C_GREEN  = (80, 255, 120)
     C_RED    = (60, 60, 255)
     C_WHITE  = (230, 230, 230)
 
     @staticmethod
     def text(img, s, pos, color=(230,230,230), scale=0.38, thick=1):
-        """描边文字（黑边 + 白字，无需背景也清晰）"""
         cv2.putText(img, s, pos, cv2.FONT_HERSHEY_SIMPLEX, scale, (0,0,0), thick+2, cv2.LINE_AA)
         cv2.putText(img, s, pos, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA)
 
     @classmethod
     def draw_crosshair(cls, img):
-        """极简准星 — 白色细线，无圆圈"""
         h, w = img.shape[:2]
         cx, cy = w // 2, h // 2
         c = (200, 200, 200)
@@ -142,7 +121,6 @@ class HUDRenderer:
 
     @classmethod
     def draw_info(cls, img, data):
-        """左上角纯文字信息（无背景）"""
         det = data.get('detections', 0)
         total = max(data.get('frame', 1), 1)
         lines = [
@@ -166,11 +144,6 @@ class HUDRenderer:
     @staticmethod
     def enhance_image(img, brightness=15, contrast=1.15):
         return cv2.convertScaleAbs(img, alpha=contrast, beta=brightness)
-
-
-# ============================================================
-#  视觉制导
-# ============================================================
 
 class VisionGuidance:
     def __init__(self, client, model_path, turret_id="turret_0",
@@ -249,7 +222,6 @@ class VisionGuidance:
                     time.sleep(0.1)
                     continue
 
-                # enhance_image 已移除 — SceneCapture 手动曝光后画面与编辑器一致
                 self.frame_count += 1
 
                 try:
@@ -261,6 +233,18 @@ class VisionGuidance:
                 pos = None
                 pitch, yaw = 0, 0
                 fired = False
+
+                now = time.time()
+                dt = max(now - last_t, 0.001)
+                last_t = now
+
+                # 每帧调用 auto_engage：读取真实坐标 → 卡尔曼滤波 → 计算瞄准 → 设置转台角度
+                # 传入真实帧间 dt，修复卡尔曼测速错乱导致滞后的问题
+                engage = self.client.guidance_auto_engage(
+                    self.turret_id, "drone_0", self.muzzle_speed, dt=dt)
+                if engage.get("status") == "ok":
+                    pitch = engage.get("pitch", pitch)
+                    yaw = engage.get("yaw", yaw)
 
                 if len(results) > 0 and len(results[0].boxes) > 0:
                     boxes = results[0].boxes.xyxy.cpu().numpy()
@@ -278,21 +262,12 @@ class VisionGuidance:
                     area = (x2-x1)*(y2-y1)
                     pos, _ = self.estimate_3d(cx, cy, area)
 
-                    self.client.guidance_update_target(float(pos[0]), float(pos[1]), float(pos[2]), 0.1)
-                    aim = self.client.guidance_compute_aim(self.turret_id, self.muzzle_speed)
-                    if aim.get("status") == "ok":
-                        pitch = aim.get("pitch", pitch)
-                        yaw = aim.get("yaw", yaw)
-
                 if auto_fire and tracking and self.frame_count % fire_interval == 0:
                     self.client.turret_fire(self.muzzle_speed, self.turret_id)
                     fired = True
 
-                now = time.time()
-                fps = 1.0 / max(now - last_t, 0.001)
-                last_t = now
+                fps = 1.0 / dt
 
-                # 获取转台当前角度
                 try:
                     ts = self.client.turret_state(self.turret_id)
                     pitch = ts.get("pitch", pitch)
@@ -300,7 +275,6 @@ class VisionGuidance:
                 except:
                     pass
 
-                # 绘制 HUD
                 self.hud.draw_crosshair(img)
                 self.hud.draw_info(img, {
                     "fps": fps, "frame": self.frame_count,
@@ -346,16 +320,13 @@ class VisionGuidance:
             print(f"\n[统计] 帧:{self.frame_count} 检测:{self.detect_count} 率:{rate:.1f}%")
 
 
-# ============================================================
-
 def find_model():
-    # 优先使用自定义训练模型
-    for p in [os.path.join(SCRIPT_DIR, "..", "..", "Yolo", "yolo26n-objv1-150.pt"),
+    for p in [os.path.join(SCRIPT_DIR, "..", "..", "runs", "detect", "drone_detect2", "weights", "best.pt"),
+              os.path.join(SCRIPT_DIR, "..", "..", "Yolo", "yolo26n-objv1-150.pt"),
               os.path.join(SCRIPT_DIR, "..", "..", "Yolo", "yolo26n.pt")]:
         if os.path.exists(p):
             return os.path.abspath(p)
     return None
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -390,15 +361,13 @@ def main():
     drone.start()
     time.sleep(8)
 
-    client.turret_start_tracking("drone_0")
     client._send({"call_turret": {"function": "show_prediction"}})
-    print("[Turret] 跟踪 + 预测线 ON")
+    print("[Turret] 预测线 ON (制导模式)")
 
     guidance = VisionGuidance(client, args.model, muzzle_speed=args.muzzle_speed,
                               conf=args.conf, method=args.method)
     guidance.run(drone, auto_fire=args.fire, fire_interval=args.fire_interval)
 
-    client.turret_stop_tracking()
     client._send({"call_turret": {"function": "hide_prediction"}})
     drone.stop()
     client.close()

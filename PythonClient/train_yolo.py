@@ -4,9 +4,9 @@ train_yolo.py — 用采集的数据训练 YOLO 模型
 先运行 collect_data.py 采集数据，然后运行本脚本训练。
 
 使用:
-  python train_yolo.py                     # 默认训练
-  python train_yolo.py --epochs 150        # 训练 150 轮
-  python train_yolo.py --model yolo11n.pt  # 指定预训练模型
+  python train_yolo.py                     # 默认使用上次训练出的 best.pt 继续训练
+  python train_yolo.py --epochs 150        # 继续训练 150 轮
+  python train_yolo.py --model yolo11n.pt  # 重新从官方轻量模型开始训练
 """
 
 import os, sys, argparse, shutil
@@ -66,10 +66,14 @@ def split_dataset(dataset_dir, val_ratio=0.2):
     print(f"[Split] train={len(files)-n_val}, val={n_val}")
 
 
+def get_best_model():
+    p = os.path.join("runs", "detect", "drone_detect", "weights", "best.pt")
+    return p if os.path.exists(p) else "yolo11n.pt"
+
 def main():
     parser = argparse.ArgumentParser(description="训练 YOLO 无人机检测模型")
     parser.add_argument("--dataset", default="dataset", help="数据集目录")
-    parser.add_argument("--model", default="yolo11n.pt", help="预训练模型")
+    parser.add_argument("--model", default=get_best_model(), help="预训练模型 (默认寻找 runs 下的 best.pt，没有则用 yolo11n.pt)")
     parser.add_argument("--epochs", type=int, default=100, help="训练轮数")
     parser.add_argument("--imgsz", type=int, default=640, help="输入尺寸")
     parser.add_argument("--batch", type=int, default=16, help="批大小")

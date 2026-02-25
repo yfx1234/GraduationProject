@@ -38,7 +38,8 @@ void UGuidanceCommandHandler::EnsureInitialized()
     if (!Predictor)
     {
         Predictor = NewObject<UKalmanPredictor>(this);
-        Predictor->Initialize(1.0f, 0.5f);
+        // 修改为高追踪灵敏度 (Q=100.0过程噪声高, R=0.01测量极其相信传感器)
+        Predictor->Initialize(100.0f, 0.01f);
     }
 
     if (!CurrentMethod)
@@ -196,9 +197,15 @@ FString UGuidanceCommandHandler::HandleCallGuidance(const TSharedPtr<FJsonObject
         if (!Target) return MakeError(FString::Printf(TEXT("Target '%s' not found"), *TargetId));
         if (!Turret) return MakeError(FString::Printf(TEXT("Turret '%s' not found"), *TurretId));
 
+        float Dt = 0.05f;
+        if ((*CmdObj)->HasField(TEXT("dt")))
+        {
+            Dt = (*CmdObj)->GetNumberField(TEXT("dt"));
+        }
+
         // 1. 更新卡尔曼
         FVector TargetPos = Target->GetActorLocation();
-        Predictor->Update(TargetPos, 0.05f); // 假设 20Hz
+        Predictor->Update(TargetPos, Dt);
 
         // 2. 计算瞄准
         FGuidanceInput Input;
@@ -211,7 +218,7 @@ FString UGuidanceCommandHandler::HandleCallGuidance(const TSharedPtr<FJsonObject
         Input.TargetVel = Predictor->GetEstimatedVelocity();
         Input.PredictedPos = Predictor->PredictPosition(0.5f);
         Input.MuzzleSpeed = MuzzleSpeed;
-        Input.DeltaTime = 0.05f;
+        Input.DeltaTime = Dt;
 
         FGuidanceOutput Output = CurrentMethod->ComputeAim(Input);
 
@@ -244,7 +251,7 @@ FString UGuidanceCommandHandler::HandleCallGuidance(const TSharedPtr<FJsonObject
     if (Function == TEXT("reset"))
     {
         Predictor->Reset();
-        Predictor->Initialize(1.0f, 0.5f);
+        Predictor->Initialize(100.0f, 0.01f);
         if (CurrentMethod) CurrentMethod->Reset();
         LastPitch = 0; LastYaw = 0;
         LastAimPoint = FVector::ZeroVector;

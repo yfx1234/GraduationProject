@@ -120,24 +120,44 @@ def collect(args):
 
     saved = 0
     step = 0
-    print(f"[采集] 目标 {args.num} 张，开始采集...")
+    # 修改距离和高度分布：主要向四周横向展开，高度不再集中在转台正上方
+    # R 默认改为 100m
+    altitudes = [2.0, 5.0, 8.0, 15.0, 20.0, 30.0] 
+    distances = [0.2, 0.4, 0.7, 1.0, 1.5, 2.0, 2.5] # 20m ~ 250m 大范围
 
-    # 多种采集模式（不同距离、角度、高度）
-    altitudes = [3.0, 5.0, 8.0, 12.0]
-    distances = [0.2, 0.35, 0.5, 0.7]
+    empty_images_count = 0  # 纯负样本计数
 
     while saved < args.num:
-        # 变换无人机位置（多样化数据）
-        alt = altitudes[step % len(altitudes)]
-        dist_ratio = distances[(step // 4) % len(distances)]
-        angle = (step * 37) % 360  # 不同角度
+        # 10% 的概率收集没有无人机的纯负样本（抑制假阳性）
+        collect_empty = (np.random.random() < 0.1)
+
+        # 变换无人机位置
+        alt = np.random.choice(altitudes) + np.random.uniform(-2.0, 5.0)
+        dist_ratio = np.random.choice(distances)
+        
+        # 随机偏航角，360度全方位
+        angle = np.random.uniform(0, 360)
         rad = math.radians(angle)
 
         target_x = tx + R * dist_ratio * math.cos(rad)
         target_y = ty + R * dist_ratio * math.sin(rad)
-        print(f"  [step {step}] 移动无人机 -> ({target_x/100:.1f}, {target_y/100:.1f}, {alt:.1f})")
-        client.drone_move_to(target_x / 100, target_y / 100, alt, 3.0)
-        time.sleep(2.5)
+        
+        if collect_empty:
+            # 如果收集空图片，就把无人机“藏起”或者飞到极高极远的地方
+            client.drone_move_to(tx / 100 + 400.0, ty / 100 + 400.0, 500.0, 20.0)
+            time.sleep(1.0)
+            # 转台随便转个角度
+            client.turret_set_angles(np.random.uniform(-10, 30), np.random.uniform(-180, 180))
+        else:
+            print(f"  [step {step}] 移动无人机 -> ({target_x/100:.1f}, {target_y/100:.1f}, {alt:.1f})")
+            move_speed = np.random.uniform(4.0, 12.0)
+            client.drone_move_to(target_x / 100, target_y / 100, alt, move_speed)
+            time.sleep(np.random.uniform(1.5, 3.0)) 
+
+        # 随机开火制造干扰 (子弹轨迹、枪口火光)
+        if np.random.random() < 0.4:  # 40% 概率开火
+            client.turret_fire(400.0)
+            time.sleep(0.1) # 让子弹飞一会儿入画
 
         # 获取图像 + 相机参数
         print(f"  [step {step}] 请求图像...")
@@ -176,17 +196,34 @@ def collect(args):
         fov = resp.get("fov", 90.0)
         print(f"  [step {step}] 图像 {img_w}x{img_h}, cam_pos={cam_pos}, cam_rot={cam_rot}, fov={fov}")
 
-        # 3D → 2D 投影（drone_pos 单位是米，cam_pos 单位是厘米，需要统一）
+        # 处理纯负样本
+        if collect_empty:
+            name = f"{saved:05d}"
+            img_path = os.path.join(img_dir, f"{name}.jpg")
+            lbl_path = os.path.join(lbl_dir, f"{name}.txt")
+            cv2.imwrite(img_path, img)
+            # 生成空标签文件（表示这图里没有目标）
+            open(lbl_path, 'w').close()
+            saved += 1
+            empty_images_count += 1
+            print(f"  [step {step}] ✓ 保存 #{saved}/{args.num} [背景/干扰图]")
+            step += 1
+            
+            # 恢复转台跟踪
+            client.turret_start_tracking("drone_0")
+            time.sleep(0.5)
+            continue
+
+        # 正常样本处理：3D → 2D 投影
         drone_pos_cm = [p * 100 for p in drone_pos]
-        print(f"  [step {step}] drone_pos_cm={drone_pos_cm}")
         result = project_3d_to_2d(drone_pos_cm, cam_pos, cam_rot, fov, img_w, img_h)
         if result is None:
-            print(f"  [step {step}] ✗ 无人机不在视野内 (投影失败)")
+            # 有时目标太快飞出视野外，也可以作为纯负样本
             step += 1
             continue
 
         u, v, depth = result
-        if depth < 50:  # 太近跳过
+        if depth < 30:  # 太近跳过
             print(f"  [step {step}] ✗ 太近 depth={depth:.0f}cm")
             step += 1
             continue
@@ -200,7 +237,7 @@ def collect(args):
             step += 1
             continue
 
-        # 保存图像
+        # 保存图像及正常标签
         name = f"{saved:05d}"
         img_path = os.path.join(img_dir, f"{name}.jpg")
         lbl_path = os.path.join(lbl_dir, f"{name}.txt")
@@ -219,6 +256,7 @@ def collect(args):
     client.close()
 
     print(f"\n[完成] {saved} 张图像保存到 {args.output}/")
+    print(f"  其中纯负样本(背景/干扰): {empty_images_count} 张")
     print(f"  images/train/: {saved} 张 JPEG")
     print(f"  labels/train/: {saved} 个 YOLO 标签")
 
@@ -230,7 +268,7 @@ if __name__ == "__main__":
     parser.add_argument("--num", type=int, default=500, help="采集数量")
     parser.add_argument("--output", default="dataset", help="输出目录")
     parser.add_argument("--altitude", type=float, default=5.0)
-    parser.add_argument("--radius", type=float, default=40.0, help="飞行半径(m)")
+    parser.add_argument("--radius", type=float, default=100.0, help="基准飞行半径(m)")
     parser.add_argument("--drone-size", type=float, default=120.0, help="无人机尺寸(cm)")
     args = parser.parse_args()
     collect(args)

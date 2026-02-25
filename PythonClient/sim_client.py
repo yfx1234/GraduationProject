@@ -132,10 +132,10 @@ class SimClient:
                            "turret_id": turret_id, "muzzle_speed": muzzle_speed}})
 
     def guidance_auto_engage(self, turret_id: str = "turret_0", target_id: str = "drone_0",
-                             muzzle_speed: float = 400.0, fire: bool = False) -> dict:
+                             muzzle_speed: float = 400.0, fire: bool = False, dt: float = 0.05) -> dict:
         return self._send({"call_guidance": {"function": "auto_engage",
                            "turret_id": turret_id, "target_id": target_id,
-                           "muzzle_speed": muzzle_speed, "fire": fire}})
+                           "muzzle_speed": muzzle_speed, "fire": fire, "dt": dt}})
 
     def guidance_reset(self) -> dict:
         return self._send({"call_guidance": {"function": "reset"}})
