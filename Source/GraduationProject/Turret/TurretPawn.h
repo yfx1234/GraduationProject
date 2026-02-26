@@ -1,3 +1,12 @@
+/**
+ * @file TurretPawn.h
+ * @brief 转台/炮塔 Pawn 的头文件
+ *
+ * 定义 ATurretPawn 类，表示仿真中的转台系统。
+ * 包含底座、俯仰轴、摄像头和瞄准组件，
+ * 支持目标跟踪、射击和图像采集功能。
+ */
+
 #pragma once
 
 #include "CoreMinimal.h"

@@ -1,3 +1,11 @@
+/**
+ * @file SimHUD.h
+ * @brief 仿真 HUD（平视显示）的头文件
+ *
+ * 定义 ASimHUD 类，在屏幕上绘制仿真状态信息：
+ * 无人机位置/速度/姿态、转台角度、制导信息等。
+ */
+
 #pragma once
 
 #include "CoreMinimal.h"

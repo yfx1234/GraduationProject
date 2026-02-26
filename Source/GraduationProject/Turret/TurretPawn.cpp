@@ -1,3 +1,11 @@
+/**
+ * @file TurretPawn.cpp
+ * @brief 转台/炮塔 Pawn 的实现文件
+ *
+ * 实现转台组件创建、目标跟踪、射击逻辑、
+ * SceneCaptureComponent2D 图像采集和 Base64 编码。
+ */
+
 #include "TurretPawn.h"
 #include "BulletActor.h"
 #include "TurretAiming.h"

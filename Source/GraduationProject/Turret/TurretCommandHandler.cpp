@@ -1,3 +1,11 @@
+/**
+ * @file TurretCommandHandler.cpp
+ * @brief 转台 TCP 命令处理器的实现文件
+ *
+ * 解析 call_turret / get_turret_state JSON 命令，
+ * 通过 AgentManager 查找 TurretPawn 并委托执行。
+ */
+
 #include "TurretCommandHandler.h"
 #include "TurretPawn.h"
 #include "GraduationProject/Core/Manager/AgentManager.h"

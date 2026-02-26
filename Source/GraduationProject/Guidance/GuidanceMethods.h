@@ -1,3 +1,13 @@
+/**
+ * @file GuidanceMethods.h
+ * @brief 三种制导算法实现的头文件
+ *
+ * 定义了三种制导方法类：
+ * 1. FDirectAiming — 直接瞄准（无预测补偿）
+ * 2. FProportionalNavigation — 比例导引（LOS变化率补偿）
+ * 3. FPredictiveGuidance — 卡尔曼预测制导（论文核心，迭代收敛）
+ */
+
 #pragma once
 
 #include "CoreMinimal.h"

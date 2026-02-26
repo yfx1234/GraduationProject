@@ -1,3 +1,12 @@
+/**
+ * @file TurretCommandHandler.h
+ * @brief 转台 TCP 命令处理器的头文件
+ *
+ * 定义 UTurretCommandHandler 类，处理：
+ * - call_turret: 转台控制（设置目标、射击、设置参数等）
+ * - get_turret_state: 查询转台状态（位置、角度、目标等）
+ */
+
 #pragma once
 
 #include "CoreMinimal.h"

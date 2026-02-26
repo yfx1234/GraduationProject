@@ -1,3 +1,11 @@
+/**
+ * @file TurretAiming.h
+ * @brief 转台瞄准计算组件的头文件
+ *
+ * 定义 UTurretAiming 组件，负责计算转台的瞄准角度。
+ * 支持直接瞄准和使用制导算法（IGuidanceMethod）计算射击诸元。
+ */
+
 #pragma once
 
 #include "CoreMinimal.h"

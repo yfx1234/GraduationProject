@@ -1,3 +1,12 @@
+/**
+ * @file ITargetPredictor.h
+ * @brief 目标预测器接口的头文件
+ *
+ * 定义 ITargetPredictor 纯虚接口，为制导系统提供统一的
+ * 目标状态估计和未来位置预测接口。
+ * 具体实现类：UKalmanPredictor（卡尔曼滤波预测器）。
+ */
+
 #pragma once
 
 #include "CoreMinimal.h"

@@ -1,3 +1,11 @@
+/**
+ * @file TurretAiming.cpp
+ * @brief 转台瞄准计算组件的实现文件
+ *
+ * 实现 CalculateAimAngles() 瞄准角度计算，
+ * 支持从转台 Yaw 轴到目标方向的角度分解。
+ */
+
 #include "TurretAiming.h"
 #include "TurretPawn.h"
 #include "GraduationProject/Core/Manager/AgentManager.h"

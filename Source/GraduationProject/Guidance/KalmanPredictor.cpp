@@ -1,3 +1,12 @@
+/**
+ * @file KalmanPredictor.cpp
+ * @brief 卡尔曼滤波器目标预测器的实现文件
+ *
+ * 实现卡尔曼滤波的预测 (Predict) 和更新 (Update) 步骤，
+ * 以及基于匀速运动模型的未来位置预测 (PredictFuturePosition)。
+ * 包括状态转移矩阵 F、观测矩阵 H 的初始化。
+ */
+
 #include "KalmanPredictor.h"
 
 UKalmanPredictor::UKalmanPredictor()

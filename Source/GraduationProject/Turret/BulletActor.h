@@ -1,3 +1,11 @@
+/**
+ * @file BulletActor.h
+ * @brief 弹丸 Actor 的头文件
+ *
+ * 定义 ABulletActor 类，表示转台发射的弹丸。
+ * 使用弹道物理模型模拟弹丸飞行轨迹（包含重力和空气阻力）。
+ */
+
 #pragma once
 
 #include "CoreMinimal.h"

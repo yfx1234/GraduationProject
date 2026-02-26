@@ -1,3 +1,11 @@
+/**
+ * @file ImageCapture.cpp
+ * @brief 图像采集组件的实现文件
+ *
+ * 实现从 RenderTarget 读取像素数据、
+ * JPEG 压缩和 Base64 编码的完整图像采集流程。
+ */
+
 #include "ImageCapture.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "ImageUtils.h"

@@ -1,3 +1,12 @@
+/**
+ * @file GuidanceCommandHandler.h
+ * @brief 制导 TCP 命令处理器的头文件
+ *
+ * 定义 UGuidanceCommandHandler 类，处理：
+ * - call_guidance: 设置制导方法、弹速、是否射击等
+ * - get_guidance_state: 查询当前制导输出和目标状态
+ */
+
 #pragma once
 
 #include "CoreMinimal.h"

@@ -1,3 +1,13 @@
+/**
+ * @file KalmanPredictor.h
+ * @brief 卡尔曼滤波器目标预测器的头文件
+ *
+ * 实现 ITargetPredictor 接口的卡尔曼滤波预测器。
+ * 使用 6 维状态向量 [x, y, z, vx, vy, vz] 和匀速运动模型，
+ * 对目标位置进行滤波估计和未来位置预测。
+ * 论文核心算法之一。
+ */
+
 #pragma once
 
 #include "CoreMinimal.h"

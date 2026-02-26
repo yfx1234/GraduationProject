@@ -1,3 +1,11 @@
+/**
+ * @file GuidanceCommandHandler.cpp
+ * @brief 制导 TCP 命令处理器的实现文件
+ *
+ * 解析 call_guidance / get_guidance_state JSON 命令，
+ * 管理制导方法和卡尔曼预测器的创建/切换/执行。
+ */
+
 #include "GuidanceCommandHandler.h"
 #include "KalmanPredictor.h"
 #include "GuidanceMethods.h"

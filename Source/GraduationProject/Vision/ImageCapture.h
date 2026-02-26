@@ -1,3 +1,12 @@
+/**
+ * @file ImageCapture.h
+ * @brief 图像采集组件的头文件
+ *
+ * 定义 UImageCapture 组件，封装 SceneCaptureComponent2D
+ * 的图像采集、JPEG 压缩和 Base64 编码功能。
+ * 供转台摄像头使用。
+ */
+
 #pragma once
 
 #include "CoreMinimal.h"

@@ -1,3 +1,11 @@
+/**
+ * @file GuidanceMethods.cpp
+ * @brief 三种制导算法的实现文件
+ *
+ * 实现直接瞄准、比例导引和卡尔曼预测制导三种瞄准算法。
+ * 辅助函数 DirToAngles() 将方向向量转换为 Pitch/Yaw 角度。
+ */
+
 #include "GuidanceMethods.h"
 #include "ITargetPredictor.h"
 

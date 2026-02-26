@@ -1,3 +1,11 @@
+/**
+ * @file SimHUD.cpp
+ * @brief 仿真 HUD 的实现文件
+ *
+ * 实现 DrawHUD() 方法，使用 Canvas 在屏幕上绘制
+ * 仿真状态信息（无人机/转台/制导 OSD）。
+ */
+
 #include "SimHUD.h"
 #include "Engine/Canvas.h"
 #include "Engine/Font.h"

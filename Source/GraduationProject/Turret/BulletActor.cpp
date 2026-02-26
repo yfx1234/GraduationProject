@@ -1,3 +1,11 @@
+/**
+ * @file BulletActor.cpp
+ * @brief 弹丸 Actor 的实现文件
+ *
+ * 实现弹丸的物理仿真（重力+阻力弹道）、
+ * 生命周期管理和碰撞检测逻辑。
+ */
+
 #include "BulletActor.h"
 #include "UObject/ConstructorHelpers.h"
 
