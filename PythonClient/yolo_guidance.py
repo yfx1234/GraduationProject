@@ -7,11 +7,9 @@ import numpy as np
 import cv2
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-for p in [os.path.join(SCRIPT_DIR, "..", "..", "Yolo", "ultralytics-main"),
-          os.path.join(SCRIPT_DIR, "..", "Yolo", "ultralytics-main")]:
-    if os.path.exists(p):
-        sys.path.insert(0, os.path.abspath(p))
-        break
+_ultra_path = os.path.join(SCRIPT_DIR, "YOLO", "ultralytics")
+if os.path.exists(_ultra_path):
+    sys.path.insert(0, _ultra_path)
 
 from ultralytics import YOLO
 from sim_client import SimClient
@@ -321,9 +319,11 @@ class VisionGuidance:
 
 
 def find_model():
-    for p in [os.path.join(SCRIPT_DIR, "..", "..", "runs", "detect", "drone_detect2", "weights", "best.pt"),
-              os.path.join(SCRIPT_DIR, "..", "..", "Yolo", "yolo26n-objv1-150.pt"),
-              os.path.join(SCRIPT_DIR, "..", "..", "Yolo", "yolo26n.pt")]:
+    """在 PythonClient/YOLO/ 目录下搜索 YOLO 模型权重"""
+    for p in [os.path.join(SCRIPT_DIR, "YOLO", "runs", "detect", "drone_detect2", "weights", "best.pt"),
+              os.path.join(SCRIPT_DIR, "YOLO", "runs", "detect", "drone_detect", "weights", "best.pt"),
+              os.path.join(SCRIPT_DIR, "YOLO", "weights", "yolo26n-objv1-150.pt"),
+              os.path.join(SCRIPT_DIR, "YOLO", "weights", "yolo26n.pt")]:
         if os.path.exists(p):
             return os.path.abspath(p)
     return None

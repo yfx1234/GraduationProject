@@ -105,7 +105,6 @@ void ATurretPawn::Tick(float DeltaTime)
     }
 }
 
-// ---- 控制接口 ----
 
 void ATurretPawn::SetTargetAngles(float NewTargetPitch, float NewTargetYaw)
 {
@@ -169,7 +168,6 @@ void ATurretPawn::FireX(float InitialSpeed)
     }
 }
 
-// ---- 弹道计算 ----
 
 TArray<FVector> ATurretPawn::Ballistic(FVector StartPos, FRotator ShootDir, float InitialSpeed, float& OutTotalTime)
 {
@@ -239,7 +237,6 @@ TArray<FVector> ATurretPawn::Ballistic(FVector StartPos, FRotator ShootDir, floa
     return ResultPath;
 }
 
-// ---- Mesh 设置 ----
 
 void ATurretPawn::SetupTurretMesh()
 {
@@ -262,7 +259,6 @@ void ATurretPawn::SetupTurretMesh()
     GunMesh->SetupAttachment(GimbalMesh);
 }
 
-// ---- 预测线 ----
 
 void ATurretPawn::ShowPredictionLine()
 {
@@ -314,7 +310,6 @@ void ATurretPawn::DrawPredictionLine()
     }
 }
 
-// ---- 图像采集 ----
 
 FString ATurretPawn::CaptureImageBase64(int32 Quality)
 {
@@ -359,7 +354,6 @@ FString ATurretPawn::CaptureImageBase64(int32 Quality)
     return FBase64::Encode(JpegData.GetData(), JpegData.Num());
 }
 
-// ---- PP 同步 (仿 AirSim copyCameraSettingsToSceneCapture) ----
 
 void ATurretPawn::SyncPostProcessToCapture()
 {

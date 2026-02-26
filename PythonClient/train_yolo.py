@@ -14,11 +14,9 @@ import os, sys, argparse, shutil
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ultralytics 路径
-for p in [os.path.join(SCRIPT_DIR, "..", "..", "Yolo", "ultralytics-main"),
-          os.path.join(SCRIPT_DIR, "..", "Yolo", "ultralytics-main")]:
-    if os.path.exists(p):
-        sys.path.insert(0, os.path.abspath(p))
-        break
+_ultra_path = os.path.join(SCRIPT_DIR, "YOLO", "ultralytics")
+if os.path.exists(_ultra_path):
+    sys.path.insert(0, _ultra_path)
 
 from ultralytics import YOLO
 
@@ -67,12 +65,16 @@ def split_dataset(dataset_dir, val_ratio=0.2):
 
 
 def get_best_model():
-    p = os.path.join("runs", "detect", "drone_detect", "weights", "best.pt")
-    return p if os.path.exists(p) else "yolo11n.pt"
+    """在 PythonClient/YOLO/ 目录下搜索之前训练的最佳模型"""
+    for name in ["drone_detect2", "drone_detect"]:
+        p = os.path.join(SCRIPT_DIR, "YOLO", "runs", "detect", name, "weights", "best.pt")
+        if os.path.exists(p):
+            return p
+    return "yolo11n.pt"
 
 def main():
     parser = argparse.ArgumentParser(description="训练 YOLO 无人机检测模型")
-    parser.add_argument("--dataset", default="dataset", help="数据集目录")
+    parser.add_argument("--dataset", default=os.path.join(SCRIPT_DIR, "YOLO", "dataset"), help="数据集目录")
     parser.add_argument("--model", default=get_best_model(), help="预训练模型 (默认寻找 runs 下的 best.pt，没有则用 yolo11n.pt)")
     parser.add_argument("--epochs", type=int, default=100, help="训练轮数")
     parser.add_argument("--imgsz", type=int, default=640, help="输入尺寸")
@@ -126,6 +128,7 @@ def main():
         imgsz=args.imgsz,
         batch=args.batch,
         name=args.name,
+        project=os.path.join(SCRIPT_DIR, "YOLO", "runs", "detect"),  # 输出到 PythonClient/YOLO/runs/detect/
         device=0,  # GPU
         workers=4,
         patience=20,
@@ -134,7 +137,7 @@ def main():
     )
 
     # 输出结果
-    best_model = os.path.join("runs", "detect", args.name, "weights", "best.pt")
+    best_model = os.path.join(SCRIPT_DIR, "YOLO", "runs", "detect", args.name, "weights", "best.pt")
     print(f"\n{'='*50}")
     print(f"  训练完成！")
     print(f"  最佳模型: {best_model}")

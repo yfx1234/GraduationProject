@@ -21,7 +21,8 @@ import base64
 import numpy as np
 import cv2
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPT_DIR)
 from sim_client import SimClient
 
 
@@ -266,7 +267,7 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9000)
     parser.add_argument("--num", type=int, default=500, help="采集数量")
-    parser.add_argument("--output", default="dataset", help="输出目录")
+    parser.add_argument("--output", default=os.path.join(SCRIPT_DIR, "YOLO", "dataset"), help="输出目录")
     parser.add_argument("--altitude", type=float, default=5.0)
     parser.add_argument("--radius", type=float, default=100.0, help="基准飞行半径(m)")
     parser.add_argument("--drone-size", type=float, default=120.0, help="无人机尺寸(cm)")
