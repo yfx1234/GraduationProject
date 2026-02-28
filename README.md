@@ -53,12 +53,6 @@ GraduationProject/
 │   ├── yolo_guidance.py               #   YOLO 视觉制导主程序
 │   ├── collect_data.py                #   自动数据采集 & 标注
 │   ├── train_yolo.py                  #   YOLO 模型训练
-│   ├── experiment_runner.py           #   对比实验运行器
-│   ├── result_plotter.py              #   实验结果绘图
-│   ├── guidance_runner.py             #   制导算法测试
-│   ├── yolo_service.py                #   YOLO 推理服务
-│   ├── test.py                        #   功能测试
-│   ├── requirements.txt               #   Python 依赖
 │   └── YOLO/                          #   YOLO 相关资源
 │       ├── ultralytics/               #     ultralytics 库源码
 │       ├── weights/                   #     预训练权重 (yolo26n*.pt)
