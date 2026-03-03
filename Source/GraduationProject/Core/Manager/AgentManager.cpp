@@ -1,10 +1,10 @@
-#include "AgentManager.h"
+﻿#include "AgentManager.h"
 
-/** 定义UAgentManage单例实例静态成员，初始化为空指针 */
+/** @brief 定义UAgentManage单例实例静态成员，初始化为空指针 */
 UAgentManager* UAgentManager::Instance = nullptr;
 
 /**
- * 获取单例实例
+ * @brief 获取单例实例
  * @return AgentManager 实例
  * 首次调用时通过 NewObject 创建实例，并调用 AddToRoot() 防止被 UE 垃圾回收器回收。
  */
@@ -19,7 +19,7 @@ UAgentManager* UAgentManager::GetInstance()
 }
 
 /**
- * 注册智能体到管理器
+ * @brief 注册智能体到管理器
  * @param AgentId 智能体唯一标识符
  * @param Agent 对应的 Actor 指针
  * 空指针或空 ID 会被直接忽略
@@ -35,7 +35,7 @@ void UAgentManager::RegisterAgent(const FString& AgentId, AActor* Agent)
 }
 
 /**
- * 注销智能体
+ * @brief 注销智能体
  * @param AgentId 要注销的智能体 ID
  * 从映射表中移除指定 ID 的智能体
  */
@@ -49,7 +49,7 @@ void UAgentManager::UnregisterAgent(const FString& AgentId)
 }
 
 /**
- * 按 ID 查找智能体
+ * @brief 按 ID 查找智能体
  * @param AgentId 智能体 ID
  * @return 对应的 Actor 指针，未找到返回 nullptr
  */
@@ -60,7 +60,7 @@ AActor* UAgentManager::GetAgent(const FString& AgentId) const
 }
 
 /**
- * 获取所有已注册智能体的 Actor 数组
+ * @brief 获取所有已注册智能体的 Actor 数组
  * @return Actor 指针数组
  */
 TArray<AActor*> UAgentManager::GetAllAgents() const
@@ -71,7 +71,7 @@ TArray<AActor*> UAgentManager::GetAllAgents() const
 }
 
 /**
- * 获取所有已注册智能体的 ID 数组
+ * @brief 获取所有已注册智能体的 ID 数组
  * @return ID 字符串数组
  */
 TArray<FString> UAgentManager::GetAllAgentIds() const
@@ -82,7 +82,7 @@ TArray<FString> UAgentManager::GetAllAgentIds() const
 }
 
 /**
- * 清理单例实例
+ * @brief 清理单例实例
  * 清空映射表，从 Root 集合中移除，允许 GC 回收
  * 将 Instance 置 nullptr
  */

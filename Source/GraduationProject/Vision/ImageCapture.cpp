@@ -1,11 +1,3 @@
-/**
- * @file ImageCapture.cpp
- * @brief 图像采集组件的实现文件
- *
- * 实现从 RenderTarget 读取像素数据、
- * JPEG 压缩和 Base64 编码的完整图像采集流程。
- */
-
 #include "ImageCapture.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "ImageUtils.h"
@@ -13,25 +5,28 @@
 #include "IImageWrapperModule.h"
 #include "IImageWrapper.h"
 
+/** @brief 构造函数 */
 UImageCapture::UImageCapture()
 {
     PrimaryComponentTick.bCanEverTick = false;
 }
 
+/** @brief 游戏开始时调用，初始化采集组件 */
 void UImageCapture::BeginPlay()
 {
     Super::BeginPlay();
     SetupCapture();
 }
 
+/**
+ * @brief 创建并配置 SceneCaptureComponent2D 和 RenderTarget
+ * 创建 RenderTarget 画布，创建 SceneCaptureComponent2D 并附着到 Owner 根组件，
+ */
 void UImageCapture::SetupCapture()
 {
-    // 创建 RenderTarget
     RenderTarget = NewObject<UTextureRenderTarget2D>(this);
     RenderTarget->InitAutoFormat(ImageWidth, ImageHeight);
     RenderTarget->ClearColor = FLinearColor::Black;
-
-    // 创建 SceneCaptureComponent2D
     CaptureComponent = NewObject<USceneCaptureComponent2D>(GetOwner());
     if (CaptureComponent)
     {
@@ -42,39 +37,33 @@ void UImageCapture::SetupCapture()
         CaptureComponent->TextureTarget = RenderTarget;
         CaptureComponent->FOVAngle = CaptureFOV;
         CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
-        CaptureComponent->bCaptureEveryFrame = false; // 手动触发
+        CaptureComponent->bCaptureEveryFrame = false;
         CaptureComponent->bCaptureOnMovement = false;
-
         UE_LOG(LogTemp, Log, TEXT("[ImageCapture] Setup %dx%d FOV=%.0f"),
             ImageWidth, ImageHeight, CaptureFOV);
     }
 }
 
+/**
+ * @brief 采集一帧图像并编码为 JPEG
+ * @param Quality JPEG 压缩质量
+ * @return JPEG 编码后的字节数组
+ */
 TArray<uint8> UImageCapture::CaptureJpeg(int32 Quality)
 {
     TArray<uint8> JpegData;
-
     if (!CaptureComponent || !RenderTarget) return JpegData;
-
-    // 手动触发一次采集
     CaptureComponent->CaptureScene();
-
-    // 读取像素数据
     FTextureRenderTargetResource* Resource = RenderTarget->GameThread_GetRenderTargetResource();
     if (!Resource) return JpegData;
-
     TArray<FColor> Pixels;
     Pixels.SetNum(ImageWidth * ImageHeight);
     FReadSurfaceDataFlags ReadFlags(RCM_UNorm);
     Resource->ReadPixels(Pixels, ReadFlags);
-
-    // 编码为 JPEG
     IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
     TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::JPEG);
-
     if (ImageWrapper.IsValid())
     {
-        // FColor 数组转 raw BGRA
         TArray<uint8> RawData;
         RawData.SetNum(Pixels.Num() * 4);
         for (int32 i = 0; i < Pixels.Num(); i++)
@@ -84,16 +73,17 @@ TArray<uint8> UImageCapture::CaptureJpeg(int32 Quality)
             RawData[i * 4 + 2] = Pixels[i].R;
             RawData[i * 4 + 3] = Pixels[i].A;
         }
-
         if (ImageWrapper->SetRaw(RawData.GetData(), RawData.Num(), ImageWidth, ImageHeight, ERGBFormat::BGRA, 8))
-        {
             JpegData = ImageWrapper->GetCompressed(Quality);
-        }
     }
-
     return JpegData;
 }
 
+/**
+ * @brief 采集一帧图像并返回 Base64 编码字符串
+ * @param Quality JPEG 压缩质量
+ * @return Base64 编码的 JPEG 字符串
+ */
 FString UImageCapture::CaptureBase64(int32 Quality)
 {
     TArray<uint8> JpegData = CaptureJpeg(Quality);

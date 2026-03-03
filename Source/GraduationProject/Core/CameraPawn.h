@@ -1,13 +1,4 @@
-/**
- * @file CameraPawn.h
- * @brief 自由相机 Pawn 的头文件，提供自由漫游和轨道跟踪两种相机模式
- *
- * 本文件定义了 ACameraPawn 类，它作为默认玩家控制的相机 Pawn，
- * 支持 WASD 自由移动和鼠标旋转漫游，以及锁定目标 Actor 的轨道跟踪模式。
- * 参考旧项目 CameraPawn（已从 Master 移植）。
- */
-
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
@@ -15,16 +6,6 @@
 #include "Camera/CameraComponent.h"
 #include "CameraPawn.generated.h"
 
-/**
- * 自由相机 Pawn（默认玩家控制）
- *
- * 支持两种操控模式：
- *   1. 自由漫游模式 — WASD 控制移动，鼠标控制旋转视角
- *   2. 轨道跟踪模式 — 锁定目标 Actor，鼠标控制轨道旋转，WS 控制与目标的距离
- *
- * 模式切换通过 StartTracking() / StopTracking() 实现。
- * 参考旧项目 CameraPawn（已从 Master 移植）。
- */
 UCLASS()
 class GRADUATIONPROJECT_API ACameraPawn : public APawn
 {
@@ -34,15 +15,10 @@ public:
     /** @brief 构造函数，初始化根组件、弹簧臂和相机组件 */
     ACameraPawn();
 
-    /**
-     * @brief 游戏开始时调用，初始化鼠标输入设置
-     */
+    /** @brief 游戏开始时调用，初始化鼠标输入设置 */
     virtual void BeginPlay() override;
 
-    /**
-     * @brief 每帧更新，根据当前模式处理相机移动和旋转
-     * @param DeltaTime 帧间隔时间（秒）
-     */
+    /** @brief 每帧更新，根据当前模式处理相机移动和旋转 */
     virtual void Tick(float DeltaTime) override;
 
     /**
@@ -53,14 +29,12 @@ public:
 
     /**
      * @brief 开始跟踪指定 Actor，切换到轨道跟踪模式
-     * @param Target 要跟踪的目标 Actor 指针，为 nullptr 时不做任何操作
+     * @param Target 要跟踪的目标 Actor 指针
      */
     UFUNCTION(BlueprintCallable, Category = "Camera")
     void StartTracking(AActor* Target);
 
-    /**
-     * @brief 停止跟踪，回到自由漫游模式
-     */
+    /** @brief 停止跟踪，回到自由模式 */
     UFUNCTION(BlueprintCallable, Category = "Camera")
     void StopTracking();
 
@@ -72,8 +46,6 @@ public:
     void OnItemClicked(const FString& AgentId, AActor* Actor);
 
 protected:
-    // ---- 输入处理函数 ----
-
     /**
      * @brief 前后移动输入处理
      * @param Value 输入轴值，正值为前进，负值为后退
@@ -93,38 +65,26 @@ protected:
     void MoveUp(float Value);
 
     /**
-     * @brief 相机俯仰（Pitch）输入处理
+     * @brief 相机俯仰输入处理
      * @param Value 鼠标Y轴偏移值
-     *
-     * 自由模式下旋转 Pawn 的 Pitch；轨道模式下调整轨道 Pitch 角度。
-     * Pitch 范围限制在 [-89°, 89°] 以防止万向锁。
      */
     void CameraPitch(float Value);
 
     /**
-     * @brief 相机偏航（Yaw）输入处理
+     * @brief 相机偏航输入处理
      * @param Value 鼠标X轴偏移值
-     *
-     * 自由模式下旋转 Pawn 的 Yaw；轨道模式下调整轨道 Yaw 角度。
      */
     void CameraYaw(float Value);
 
-    /**
-     * @brief 缩放拉近回调（轨道模式下减小与目标的距离）
-     */
+    /** @brief 缩放拉近回调 */
     void OnZoomIn();
 
-    /**
-     * @brief 缩放拉远回调（轨道模式下增大与目标的距离）
-     */
+    /** @brief 缩放拉远回调 */
     void OnZoomOut();
 
     /**
      * @brief 更新轨道跟踪模式下的相机位置和朝向
      * @param DeltaTime 帧间隔时间（秒）
-     *
-     * 根据 OrbitPitch/OrbitYaw/TrackingDistance 计算相机的轨道位置，
-     * 然后朝向目标 Actor。
      */
     void UpdateTrackingCamera(float DeltaTime);
 
@@ -133,35 +93,35 @@ protected:
     UPROPERTY(VisibleAnywhere, Category = "Camera")
     USceneComponent* RootComp;
 
-    /** @brief 弹簧臂组件（自由模式下长度为0，轨道模式下用于调整距离） */
+    /** @brief 弹簧臂组件 */
     UPROPERTY(VisibleAnywhere, Category = "Camera")
     USpringArmComponent* SpringArm;
 
-    /** @brief 相机组件，挂载在弹簧臂末端 */
+    /** @brief 相机组件 */
     UPROPERTY(VisibleAnywhere, Category = "Camera")
     UCameraComponent* Camera;
 
-    /** @brief 自由模式移动速度，单位 cm/s */
+    /** @brief 自由模式移动速度 */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Settings")
     float MoveSpeed = 600.0f;
 
-    /** @brief 鼠标灵敏度系数，影响旋转速度 */
+    /** @brief 鼠标灵敏度系数 */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Settings")
     float MouseSensitivity = 1.0f;
 
-    /** @brief 缩放速度，每次缩放操作改变的距离值 (cm) */
+    /** @brief 缩放速度 */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Settings")
     float ZoomSpeed = 50.0f;
 
-    /** @brief 轨道跟踪模式下相机与目标的距离 (cm) */
+    /** @brief 轨道跟踪模式下相机与目标的距离 */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Settings")
     float TrackingDistance = 500.0f;
 
-    /** @brief 轨道最小跟踪距离 (cm) */
+    /** @brief 轨道最小跟踪距离 */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Settings")
     float MinTrackingDistance = 100.0f;
 
-    /** @brief 轨道最大跟踪距离 (cm) */
+    /** @brief 轨道最大跟踪距离 */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera|Settings")
     float MaxTrackingDistance = 3000.0f;
 
@@ -175,10 +135,10 @@ private:
     /** @brief 轨道偏航角（度） */
     float OrbitYaw = 0.0f;
 
-    /** @brief 轨道俯仰角（度），负值表示从上方俯视 */
+    /** @brief 轨道俯仰角（度） */
     float OrbitPitch = -30.0f;
 
-    /** @brief 当前帧的移动输入方向缓冲（X=前后, Y=左右, Z=上下） */
+    /** @brief 当前帧的移动输入方向缓冲 */
     FVector InputMoveDirection = FVector::ZeroVector;
 
     /** @brief 当前帧的俯仰输入值缓冲 */

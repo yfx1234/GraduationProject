@@ -1,16 +1,4 @@
-/**
- * @file DroneApi.h
- * @brief 无人机统一 API 接口的头文件
- *
- * 本文件定义了 UDroneApi 类，提供 AirSim 风格的统一无人机控制接口。
- * 作为 TCP CommandHandler 和 DronePawn 之间的中间层：
- *   TCP Handler → DroneApi → DronePawn → DroneMovementComponent
- *
- * 所有坐标使用 SI 单位（米、m/s）。
- * 参考 AirSim MultirotorApiBase 设计。
- */
-
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
@@ -19,14 +7,6 @@
 
 class ADronePawn;
 
-/**
- * 无人机 API — AirSim 风格统一接口
- *
- * 提供高层控制接口，内部委托给 DronePawn 执行。
- * 支持位置控制、速度控制、起飞/降落/悬停、状态查询、PID 参数调整等。
- *
- * 调用链路：TCP Handler → DroneApi → DronePawn → MovementComp
- */
 UCLASS()
 class GRADUATIONPROJECT_API UDroneApi : public UObject
 {
@@ -34,19 +14,17 @@ class GRADUATIONPROJECT_API UDroneApi : public UObject
 
 public:
     /**
-     * @brief 初始化 API，绑定到目标 DronePawn
+     *  @brief 初始化 API，绑定到目标 DronePawn
      * @param Owner 拥有此 API 的 DronePawn 实例
      */
     void Initialize(ADronePawn* Owner);
-
-    // ---- 位置控制 (SI 坐标, 单位: 米) ----
 
     /**
      * @brief 移动到指定位置
      * @param X 目标 X 坐标 (m)
      * @param Y 目标 Y 坐标 (m)
      * @param Z 目标 Z 坐标 (m)
-     * @param Speed 移动速度 (m/s)，默认 2.0
+     * @param Speed 移动速度 (m/s)，默认 2
      */
     void MoveToPosition(float X, float Y, float Z, float Speed = 2.0f);
 
@@ -59,10 +37,8 @@ public:
      */
     void Takeoff(float Altitude);
 
-    /** @brief 降落到地面（Z=0） */
+    /** @brief 降落到地面 */
     void Land();
-
-    // ---- 速度控制 (单位: m/s) ----
 
     /**
      * @brief 按速度飞行
@@ -71,8 +47,6 @@ public:
      * @param Vz Z 方向速度 (m/s)
      */
     void MoveByVelocity(float Vx, float Vy, float Vz);
-
-    // ---- 状态查询 ----
 
     /**
      * @brief 获取当前位置
@@ -94,7 +68,7 @@ public:
 
     /**
      * @brief 获取四个电机的转速
-     * @return 转速数组 (rad/s)，长度为 4；无人机无效时返回空数组
+     * @return 转速数组 (rad/s)
      */
     TArray<float> GetMotorSpeeds() const;
 
@@ -103,8 +77,6 @@ public:
      * @return 控制模式枚举值
      */
     EDroneControlMode GetControlMode() const;
-
-    // ---- PID 参数调整 ----
 
     /**
      * @brief 设置位置控制器（PD）增益
@@ -134,12 +106,10 @@ public:
      */
     void SetAngleRateControllerGains(float Kp);
 
-    // ---- 重置 ----
-
     /**
      * @brief 重置无人机到指定位置和姿态
-     * @param Position 目标位置 (m)，默认原点
-     * @param Rotation 目标姿态，默认水平
+     * @param Position 目标位置 (m)
+     * @param Rotation 目标姿态
      */
     void Reset(FVector Position = FVector::ZeroVector, FRotator Rotation = FRotator::ZeroRotator);
 

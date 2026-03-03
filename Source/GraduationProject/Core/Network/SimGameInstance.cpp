@@ -1,9 +1,9 @@
-#include "SimGameInstance.h"
+﻿#include "SimGameInstance.h"
 #include "CommandRouter.h"
 #include "Common/TcpSocketBuilder.h"
 
 /**
- * 初始化 GameInstance
+ * @brief 初始化 GameInstance
  * 创建命令路由器
  * 创建 TCP 监听 Socket
  * 注册 FTSTicker 回调
@@ -19,7 +19,7 @@ void USimGameInstance::Init()
 }
 
 /**
- * 关闭 GameInstance
+ * @brief 关闭 GameInstance
  * 移除 Ticker 回调
  * 关闭并销毁客户端 Socket
  * 关闭并销毁监听 Socket
@@ -43,15 +43,14 @@ void USimGameInstance::Shutdown()
     Super::Shutdown();
 }
 
-/** 创建 TCP 监听 Socket */
+/** @brief 创建 TCP 监听 Socket */
 void USimGameInstance::CreateListenerSocket()
 {
     ListenerSocket = FTcpSocketBuilder(TEXT("SimTcpListener"))
-        .AsReusable()               // 允许端口复用
-        .BoundToPort(ListenPort)    // 绑定到指定端口
-        .Listening(8)               // 最大等待连接队列数
+        .AsReusable()              
+        .BoundToPort(ListenPort)   
+        .Listening(8)              
         .Build();
-
     if (!ListenerSocket)
     {
         UE_LOG(LogTemp, Error, TEXT("[TCP] Failed to create listener socket on port %d!"), ListenPort);
@@ -61,30 +60,20 @@ void USimGameInstance::CreateListenerSocket()
 }
 
 /**
- * 核心 Tick 回调
+ * @brief 核心 Tick 回调
  * @param DeltaTime 帧间隔时间
  * @return true 保持 Ticker 继续运行
- *
- * 每帧执行：检查新连接 → 接收数据并处理。
  */
 bool USimGameInstance::HandleTick(float DeltaTime)
 {
-    // 检查是否有新的客户端连接请求
     CheckForConnections();
-
-    // 如果有已连接的客户端，接收数据
-    if (ClientSocket)
-    {
-        ReceiveData();
-    }
-
-    return true; // 返回 true 保持 Ticker 继续运行
+    if (ClientSocket) ReceiveData();
+    return true;
 }
 
 /**
- * 检查并接受新的客户端连接
- * 如果已有连接，则跳过（同时只支持一个客户端）
- * 接受连接后设置 Socket 为非阻塞模式
+ * @brief 检查并接受新的客户端连接
+ * 如果已有连接，则跳过
  */
 void USimGameInstance::CheckForConnections()
 {
@@ -97,13 +86,13 @@ void USimGameInstance::CheckForConnections()
         ClientSocket = ListenerSocket->Accept(*RemoteAddr, TEXT("SimTcpClient"));
         if (ClientSocket)
         {
-            ClientSocket->SetNonBlocking(true);     // 非阻塞模式
+            ClientSocket->SetNonBlocking(true);    
             UE_LOG(LogTemp, Warning, TEXT("[TCP] Client connected: %s"), *RemoteAddr->ToString(true));
         }
     }
 }
 
-/** 从客户端接收数据并解析消息 */
+/** @brief 从客户端接收数据并解析消息 */
 void USimGameInstance::ReceiveData()
 {
     if (!ClientSocket) return;
@@ -146,7 +135,7 @@ void USimGameInstance::ReceiveData()
                 {
                     if (Trimmed[i] == '{') BraceCount++;
                     else if (Trimmed[i] == '}') BraceCount--;
-                    if (BraceCount == 0 && i > 0)   // 计数器归零，'{'和'}'完成闭合
+                    if (BraceCount == 0 && i > 0) 
                     {
                         bComplete = true;
                         FString CompleteMsg = Trimmed.Left(i + 1);
@@ -167,7 +156,7 @@ void USimGameInstance::ReceiveData()
 }
 
 /**
- * 处理一条完整的 JSON 命令
+ * @brief 处理一条完整的 JSON 命令
  * @param Data JSON 字符串
  * 将 JSON 交给 CommandRouter 处理，获取响应后通过 TCP 发送回客户端。
  */
@@ -181,7 +170,7 @@ void USimGameInstance::ProcessReceivedData(const FString& Data)
 }
 
 /**
- * 向客户端发送响应字符串
+ * @brief 向客户端发送响应字符串
  * @param Response 响应内容
  * 将 FString 转换为 UTF-8 字节后通过 TCP Socket 发送。
  */

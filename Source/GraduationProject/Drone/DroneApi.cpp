@@ -1,12 +1,4 @@
-/**
- * @file DroneApi.cpp
- * @brief 无人机统一 API 接口的实现文件
- *
- * 实现 AirSim 风格的统一 API，将高层控制命令委托给 DronePawn 执行。
- * 所有方法在 OwnerPawn 为空时安全返回默认值。
- */
-
-#include "DroneApi.h"
+﻿#include "DroneApi.h"
 #include "DronePawn.h"
 #include "DroneMovementComponent.h"
 
@@ -20,14 +12,11 @@ void UDroneApi::Initialize(ADronePawn* Owner)
 }
 
 /**
- * @brief 移动到指定 SI 坐标位置
+ * @brief 移动到指定坐标位置
  * @param X 目标 X 坐标 (m)
  * @param Y 目标 Y 坐标 (m)
  * @param Z 目标 Z 坐标 (m)
- * @param Speed 移动速度 (m/s)，当前未直接使用
- *
- * 将目标位置传给 DronePawn::SetTargetPosition()，
- * 内部通过级联 PID 控制器自动飞向目标。
+ * @param Speed 移动速度 (m/s)
  */
 void UDroneApi::MoveToPosition(float X, float Y, float Z, float Speed)
 {
@@ -76,7 +65,7 @@ void UDroneApi::MoveByVelocity(float Vx, float Vy, float Vz)
 
 /**
  * @brief 获取当前位置
- * @return 位置向量 (m)，无人机无效时返回零向量
+ * @return 位置向量 (m)
  */
 FVector UDroneApi::GetPosition() const
 {
@@ -85,7 +74,7 @@ FVector UDroneApi::GetPosition() const
 
 /**
  * @brief 获取当前速度
- * @return 速度向量 (m/s)，无人机无效时返回零向量
+ * @return 速度向量 (m/s)
  */
 FVector UDroneApi::GetVelocity() const
 {
@@ -94,7 +83,7 @@ FVector UDroneApi::GetVelocity() const
 
 /**
  * @brief 获取当前姿态
- * @return 欧拉角 (Roll, Pitch, Yaw)，无人机无效时返回零旋转
+ * @return 欧拉角 (Roll, Pitch, Yaw)
  */
 FRotator UDroneApi::GetOrientation() const
 {
@@ -103,10 +92,7 @@ FRotator UDroneApi::GetOrientation() const
 
 /**
  * @brief 获取四个电机的转速
- * @return 转速数组 (rad/s)，长度为 4
- *
- * 将 double 转速转换为 float 输出。
- * 如果电机数据无效（不足4个），返回空数组。
+ * @return 转速数组 (rad/s)
  */
 TArray<float> UDroneApi::GetMotorSpeeds() const
 {
@@ -121,14 +107,12 @@ TArray<float> UDroneApi::GetMotorSpeeds() const
 
 /**
  * @brief 获取当前控制模式
- * @return 控制模式枚举值，无人机无效时返回 Idle
+ * @return 控制模式枚举值
  */
 EDroneControlMode UDroneApi::GetControlMode() const
 {
     return OwnerPawn ? OwnerPawn->ControlMode : EDroneControlMode::Idle;
 }
-
-// ---- PID 参数调整（委托给 MovementComponent） ----
 
 /**
  * @brief 设置位置控制器增益

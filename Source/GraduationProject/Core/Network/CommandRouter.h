@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
@@ -30,7 +30,7 @@ class GRADUATIONPROJECT_API UCommandRouter : public UObject
 
 public:
     /**
-     * 处理 TCP 命令
+     * @brief 处理 TCP 命令
      * @param JsonString 收到的 JSON 字符串
      * @param World 当前 UWorld 指针
      * @return 响应 JSON 字符串，包含 status 和 message 字段
@@ -39,68 +39,68 @@ public:
 
 private:
     /**
-     * 处理 ping 命令，返回 pong 响应
+     * @brief 处理 ping 命令，返回 pong 响应
      * @return JSON 响应 {"status":"ok","message":"pong"}
      */
     FString HandlePing();
 
     /**
-     * 暂停仿真
+     * @brief 暂停仿真
      * @param World 当前 World
      * @return JSON 响应
      */
     FString HandleSimPause(UWorld* World);
 
     /**
-     * 恢复仿真
+     * @brief 恢复仿真
      * @param World 当前 World
      * @return JSON 响应
      */
     FString HandleSimResume(UWorld* World);
 
     /**
-     * 重置仿真
+     * @brief 重置仿真
      * @param World 当前 World
      * @return JSON 响应
      */
     FString HandleSimReset(UWorld* World);
 
     /**
-     * 获取已注册智能体列表
+     * @brief 获取已注册智能体列表
      * @return JSON 响应，包含 agents 数组和 count 字段
      */
     FString HandleGetAgentList();
 
     /**
-     * 获取转台摄像头图像（Base64 编码的 JPEG）
+     * @brief 获取转台摄像头图像（Base64 编码的 JPEG）
      * @param World 当前 World
      * @return JSON 响应，包含 data(Base64)、camera_pos、camera_rot、fov 等字段
      */
     FString HandleGetImage(UWorld* World);
 
     /**
-     * 构造错误响应 JSON
+     * @brief 构造错误响应 JSON
      * @param Error 错误信息
      * @return {"status":"error","message":"..."}
      */
     FString MakeErrorResponse(const FString& Error);
 
     /**
-     * 构造成功响应 JSON
+     * @brief 构造成功响应 JSON
      * @param Message 成功信息，默认 "ok"
      * @return {"status":"ok","message":"..."}
      */
     FString MakeOkResponse(const FString& Message = TEXT("ok"));
 
-    /** 无人机命令处理器 */
+    /** @brief 无人机命令处理器 */
     UPROPERTY()
     UDroneCommandHandler* DroneHandler = nullptr;
 
-    /** 转台命令处理器 */
+    /** @brief 转台命令处理器 */
     UPROPERTY()
     UTurretCommandHandler* TurretHandler = nullptr;
 
-    /** 制导命令处理器 */
+    /** @brief 制导命令处理器 */
     UPROPERTY()
     UGuidanceCommandHandler* GuidanceHandler = nullptr;
 };

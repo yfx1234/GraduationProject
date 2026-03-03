@@ -1,4 +1,4 @@
-#include "CommandRouter.h"
+﻿#include "CommandRouter.h"
 #include "GraduationProject/Core/Manager/AgentManager.h"
 #include "GraduationProject/Core/SimGameMode.h"
 #include "GraduationProject/Drone/DroneCommandHandler.h"
@@ -11,7 +11,7 @@
 #include "Dom/JsonValue.h"
 
 /**
- * 处理 TCP 命令
+ * @brief 处理 TCP 命令
  * @param JsonString 收到的 JSON 字符串
  * @param World 当前 UWorld 指针
  * @return 响应 JSON 字符串
@@ -81,7 +81,7 @@ FString UCommandRouter::HandleCommand(const FString& JsonString, UWorld* World)
     return MakeErrorResponse(TEXT("Unknown command"));
 }
 /**
- * 心跳检测响应
+ * @brief 心跳检测响应
  * @return 返回 pong 消息，客户端用于确认连接正常
  */
 FString UCommandRouter::HandlePing()
@@ -90,7 +90,7 @@ FString UCommandRouter::HandlePing()
 }
 
 /**
- * 暂停仿真
+ * @brief 暂停仿真
  * @param World 当前 World
  * @return JSON 响应
  */
@@ -107,7 +107,7 @@ FString UCommandRouter::HandleSimPause(UWorld* World)
 }
 
 /**
- * 恢复仿真
+ * @brief 恢复仿真
  * @param World 当前 World
  * @return JSON 响应
  */
@@ -124,7 +124,7 @@ FString UCommandRouter::HandleSimResume(UWorld* World)
 }
 
 /**
- * 重置仿真
+ * @brief 重置仿真
  * @param World 当前 World
  * @return JSON 响应
  */
@@ -141,7 +141,7 @@ FString UCommandRouter::HandleSimReset(UWorld* World)
 }
 
 /**
- * 获取已注册智能体列表
+ * @brief 获取已注册智能体列表
  * @return JSON 响应，格式 {"status":"ok","agents":["drone_0","turret_0"],"count":2}
  */
 FString UCommandRouter::HandleGetAgentList()
@@ -160,7 +160,7 @@ FString UCommandRouter::HandleGetAgentList()
 }
 
 /**
- * 构造错误响应 JSON
+ * @brief 构造错误响应 JSON
  * @param Error 错误信息文本
  * @return 格式化的 JSON 错误响应
  */
@@ -170,7 +170,7 @@ FString UCommandRouter::MakeErrorResponse(const FString& Error)
 }
 
 /**
- * 构造成功响应 JSON
+ * @brief 构造成功响应 JSON
  * @param Message 成功信息文本
  * @return 格式化的 JSON 成功响应
  */
@@ -180,7 +180,7 @@ FString UCommandRouter::MakeOkResponse(const FString& Message)
 }
 
 /**
- * 获取转台摄像头图像
+ * @brief 获取转台摄像头图像
  * @param World 当前 World
  * @return JSON 响应，包含 Base64 编码的 JPEG 和摄像头参数
  */
@@ -212,6 +212,5 @@ FString UCommandRouter::HandleGetImage(UWorld* World)
             Turret->CameraFOV,
             *Base64);
     }
-
     return MakeErrorResponse(TEXT("No turret with camera found"));
 }

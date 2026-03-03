@@ -1,13 +1,4 @@
-/**
- * @file GuidanceCommandHandler.h
- * @brief 制导 TCP 命令处理器的头文件
- *
- * 定义 UGuidanceCommandHandler 类，处理：
- * - call_guidance: 设置制导方法、弹速、是否射击等
- * - get_guidance_state: 查询当前制导输出和目标状态
- */
-
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
@@ -18,7 +9,9 @@ class IGuidanceMethod;
 
 /**
  * 制导算法 TCP 命令处理器
- * 管理卡尔曼预测器和制导方法，处理 call_guidance / get_guidance_state 命令
+ * 管理 IGuidanceMethod
+ * 处理 call_guidance 命令
+ * 处理 get_guidance_state 命令
  */
 UCLASS()
 class GRADUATIONPROJECT_API UGuidanceCommandHandler : public UObject
@@ -29,29 +22,53 @@ public:
     UGuidanceCommandHandler();
     ~UGuidanceCommandHandler();
 
-    /** 处理 call_guidance 命令 */
+    /**
+     * @brief 处理 call_guidance 命令
+     * @param JsonObject 完整的 JSON 请求对象
+     * @param World 当前 UWorld 指针
+     * @return JSON 格式的响应字符串
+     */
     FString HandleCallGuidance(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World);
 
-    /** 处理 get_guidance_state 命令 */
+    /**
+     * @brief 处理 get_guidance_state 命令
+     * @param JsonObject 完整的 JSON 请求对象
+     * @param World 当前 UWorld 指针
+     * @return JSON 格式的制导状态数据
+     */
     FString HandleGetGuidanceState(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World);
 
 private:
+    /** @brief 初始化 */
     void EnsureInitialized();
 
-    // 卡尔曼预测器
+    /** @brief 卡尔曼滤波目标预测器 */
     UPROPERTY()
     UKalmanPredictor* Predictor = nullptr;
 
-    // 当前制导方法（非 UObject，手动管理生命周期）
+    /** @brief 当前制导方法 */
     IGuidanceMethod* CurrentMethod = nullptr;
+
+    /** @brief 当前制导方法名称 */
     FString CurrentMethodName;
 
-    // 最近一次制导输出（缓存用于查询）
-    float LastPitch = 0.0f;
-    float LastYaw = 0.0f;
-    FVector LastAimPoint = FVector::ZeroVector;
-    float LastFlightTime = 0.0f;
+    /** @brief 最近一次制导输出参数 */
+    float LastPitch = 0.0f;       
+    float LastYaw = 0.0f;         
+    FVector LastAimPoint = FVector::ZeroVector;  
+    float LastFlightTime = 0.0f;  
 
+    /**
+     * @brief 生成错误响应 JSON
+     * @param Msg 错误信息
+     * @return {"status":"error","message":"<Msg>"}
+     */
     FString MakeError(const FString& Msg);
+
+    /**
+     * @brief 生成成功响应 JSON
+     * @param Msg 成功信息，默认 "ok"
+     * @return {"status":"ok","message":"<Msg>"}
+     */
     FString MakeOk(const FString& Msg = TEXT("ok"));
 };

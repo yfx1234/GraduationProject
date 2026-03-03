@@ -1,4 +1,4 @@
-#include "PDController.h"
+﻿#include "PDController.h"
 
 UPDController::UPDController(): 
     Kp(1.0),                // 比例增益
@@ -15,7 +15,7 @@ UPDController::UPDController():
 }
 
 /**
- * 初始化控制器参数并重置内部状态
+ * @brief 初始化控制器参数并重置内部状态
  * @param InputKp 比例增益
  * @param InputKd 微分增益
  * @param InputDiffFilterTau 微分滤波时间常数
@@ -35,7 +35,7 @@ void UPDController::Initialize(double InputKp, double InputKd, double InputDiffF
 }
 
 /**
- * PD 控制更新
+ * @brief PD 控制更新
  * @param TargetValue 目标值
  * @param CurrentValue 当前测量值
  * @param bReset 是否在计算前重置状态
@@ -61,7 +61,7 @@ double UPDController::Update(double TargetValue, double CurrentValue, bool bRese
 }
 
 /**
- * 运行时修改 PD 参数
+ * @brief 运行时修改 PD 参数
  * @param NewKp 新的比例增益
  * @param NewKd 新的微分增益
  * @param NewDiffFilterTau 新的微分滤波时间常数
@@ -77,7 +77,7 @@ void UPDController::SetParameters(double NewKp, double NewKd, double NewDiffFilt
 }
 
 /**
- * 设置采样时间步长，并重新计算微分滤波器系数
+ * @brief 设置采样时间步长，并重新计算微分滤波器系数
  * @param NewTimeStep 新的时间步长（秒）
  * 滤波器系数公式（双线性变换/Tustin法）：
  *  α = 2 / (2τ + T)
@@ -92,7 +92,7 @@ void UPDController::SetTimeStep(double NewTimeStep)
 }
 
 /**
- * 重置控制器内部状态
+ * @brief 重置控制器内部状态
  * 将上一步误差和误差变化率清零。
  */
 void UPDController::Reset()

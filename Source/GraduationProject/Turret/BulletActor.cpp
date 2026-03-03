@@ -1,29 +1,27 @@
-/**
- * @file BulletActor.cpp
- * @brief 弹丸 Actor 的实现文件
- *
- * 实现弹丸的物理仿真（重力+阻力弹道）、
- * 生命周期管理和碰撞检测逻辑。
- */
-
-#include "BulletActor.h"
+﻿#include "BulletActor.h"
 #include "UObject/ConstructorHelpers.h"
 
+/**
+ * @brief 构造函数
+ * 启用 Tick，调用 SetupBulletMesh() 创建弹丸网格组件。
+ */
 ABulletActor::ABulletActor()
 {
     PrimaryActorTick.bCanEverTick = true;
     SetupBulletMesh();
 }
 
+/**
+ * @brief 设置弹丸忽略与 Owner 之间的碰撞，
+ * 遍历 Owner 的所有 PrimitiveComponent 逐一忽略，
+ * 避免弹丸在枪口生成时立即与转台发生碰撞。
+ */
 void ABulletActor::BeginPlay()
 {
     Super::BeginPlay();
-
-    // 让子弹忽略与转台(Owner)的碰撞
     if (GetOwner())
     {
         BulletMesh->IgnoreActorWhenMoving(GetOwner(), true);
-
         TArray<UPrimitiveComponent*> OwnerComponents;
         GetOwner()->GetComponents<UPrimitiveComponent>(OwnerComponents);
         for (auto* Comp : OwnerComponents)
@@ -33,12 +31,15 @@ void ABulletActor::BeginPlay()
     }
 }
 
+/**
+ * @brief 创建弹丸网格组件
+ * 从文件夹加载资源，
+ * 设置碰撞配置为 BlockAllDynamic，
+ */
 void ABulletActor::SetupBulletMesh()
 {
     BulletMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BulletMesh"));
     RootComponent = BulletMesh;
-
-    // 子弹模型 — 从 TurretAssets 加载
     static ConstructorHelpers::FObjectFinder<UStaticMesh> BulletMeshFinder(
         TEXT("StaticMesh'/Game/TurretAssets/Bullet.Bullet'"));
     if (BulletMeshFinder.Succeeded())
@@ -46,13 +47,16 @@ void ABulletActor::SetupBulletMesh()
         BulletMesh->SetStaticMesh(BulletMeshFinder.Object);
         BulletMesh->SetRelativeScale3D(FVector(1.0f));
     }
-
-    // 碰撞设置
     BulletMesh->SetCollisionProfileName(TEXT("BlockAllDynamic"));
     BulletMesh->SetGenerateOverlapEvents(true);
     BulletMesh->SetNotifyRigidBodyCollision(true);
 }
 
+/**
+ * @brief 初始化弹道轨迹数据
+ * @param InTrajectoryPoints 预计算的轨迹点数组
+ * @param InTotalTime 弹丸总飞行时间（秒）
+ */
 void ABulletActor::InitTrajectory(const TArray<FVector>& InTrajectoryPoints, float InTotalTime)
 {
     if (InTrajectoryPoints.Num() < 2)
@@ -61,19 +65,13 @@ void ABulletActor::InitTrajectory(const TArray<FVector>& InTrajectoryPoints, flo
         Destroy();
         return;
     }
-
     TrajectoryPoints = InTrajectoryPoints;
     TotalLifeTime = InTotalTime;
     CurrentTime = 0.0f;
     bIsFlying = true;
-
-    // 根据轨迹点数量计算时间步长
     TimeStep = TotalLifeTime / (TrajectoryPoints.Num() - 1);
-
-    // 设置初始位置
     SetActorLocation(TrajectoryPoints[0]);
-
-    // 预览完整轨迹
+    // 绘制完整轨迹
     if (bShowTrajectory && bDrawWholePathAtStart)
     {
         for (int32 i = 0; i < TrajectoryPoints.Num() - 1; i++)
@@ -84,54 +82,41 @@ void ABulletActor::InitTrajectory(const TArray<FVector>& InTrajectoryPoints, flo
     }
 }
 
+/**
+ * @brief 每帧更新，驱动弹丸沿轨迹飞行
+ * @param DeltaTime 帧间隔时间
+ * 计算当前所在轨迹段的索引
+ * 在相邻两个轨迹点之间做线性插值（Lerp）得到新位置
+ * SetActorLocation(Sweep=true) 移动并检测碰撞
+ */
 void ABulletActor::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
-
     if (!bIsFlying || TrajectoryPoints.Num() < 2) return;
-
     CurrentTime += DeltaTime;
-
     if (CurrentTime >= TotalLifeTime)
     {
         Destroy();
         return;
     }
-
     float IndexFloat = CurrentTime / TimeStep;
     int32 IndexLast = FMath::FloorToInt(IndexFloat);
     int32 IndexNext = IndexLast + 1;
-
     if (IndexLast < 0) IndexLast = 0;
     if (IndexNext >= TrajectoryPoints.Num())
     {
         Destroy();
         return;
     }
-
     float Progress = FMath::Clamp(IndexFloat - IndexLast, 0.0f, 1.0f);
-
     FVector StartPos = GetActorLocation();
     FVector NewLocation = FMath::Lerp(TrajectoryPoints[IndexLast], TrajectoryPoints[IndexNext], Progress);
-
-    // sweep 碰撞检测
+    // Sweep 碰撞检测：移动时检查路径上的碰撞
     FHitResult Hit;
     SetActorLocation(NewLocation, true, &Hit);
-
-    // 实时轨迹线
-    if (bShowTrajectory)
-    {
-        DrawDebugLine(GetWorld(), StartPos, GetActorLocation(), TraceColor, false, 10.0f, 0, TraceThickness);
-    }
-
-    // 设置朝向
+    if (bShowTrajectory) DrawDebugLine(GetWorld(), StartPos, GetActorLocation(), TraceColor, false, 10.0f, 0, TraceThickness);
     FVector Direction = (TrajectoryPoints[IndexNext] - TrajectoryPoints[IndexLast]).GetSafeNormal();
-    if (!Direction.IsZero())
-    {
-        SetActorRotation(Direction.Rotation());
-    }
-
-    // 碰撞检测
+    if (!Direction.IsZero()) SetActorRotation(Direction.Rotation());
     if (Hit.bBlockingHit)
     {
         DrawDebugSphere(GetWorld(), Hit.ImpactPoint, ImpactMarkerRadius * 2.0f, 16, ImpactMarkerColor, false, 10.0f);
@@ -139,14 +124,21 @@ void ABulletActor::Tick(float DeltaTime)
     }
 }
 
+/**
+ * @brief 绘制预测弹道线
+ * @param WorldContext 世界上下文对象
+ * @param Points 轨迹点数组
+ * @param LineColor 弹道线颜色
+ * @param Thickness 弹道线宽度
+ * @param HitRadius 命中标记半径
+ * @param HitColor 命中标记颜色
+ */
 void ABulletActor::DrawPreviewTrajectory(const UObject* WorldContext, const TArray<FVector>& Points,
     FColor LineColor, float Thickness, float HitRadius, FColor HitColor)
 {
     if (!WorldContext || Points.Num() < 2) return;
-
     UWorld* World = WorldContext->GetWorld();
     if (!World) return;
-
     for (int32 i = 0; i < Points.Num() - 1; i++)
     {
         DrawDebugLine(World, Points[i], Points[i + 1], LineColor, false, -1.0f, 0, Thickness);

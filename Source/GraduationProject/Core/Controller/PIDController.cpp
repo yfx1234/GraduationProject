@@ -1,4 +1,4 @@
-#include "PIDController.h"
+﻿#include "PIDController.h"
 
 UPIDController::UPIDController(): 
     Kp(1.0),                    // 比例增益
@@ -19,7 +19,7 @@ UPIDController::UPIDController():
 }
 
 /**
- * 初始化控制器参数并重置内部状态
+ * @brief 初始化控制器参数并重置内部状态
  * @param InputKp 比例增益
  * @param InputKi 积分增益
  * @param InputKd 微分增益
@@ -46,7 +46,7 @@ void UPIDController::Initialize(double InputKp, double InputKi, double InputKd,
 }
 
 /**
- *  PID 控制更新
+ * @brief PID 控制更新
  * @param TargetValue 目标值
  * @param CurrentValue 当前测量值
  * @param bReset 是否在计算前重置状态
@@ -75,7 +75,7 @@ double UPIDController::Update(double TargetValue, double CurrentValue, bool bRes
 }
 
 /**
- * 运行时修改 PID 参数
+ * @brief 运行时修改 PID 参数
  * @param NewKp 新的比例增益
  * @param NewKi 新的积分增益
  * @param NewKd 新的微分增益
@@ -93,7 +93,7 @@ void UPIDController::SetParameters(double NewKp, double NewKi, double NewKd, dou
 }
 
 /**
- * 设置采样时间步长，并重新计算微分滤波器系数
+ * @brief 设置采样时间步长，并重新计算微分滤波器系数
  * @param NewTimeStep 新的时间步长（秒）
  * α = 2 / (2τ + T)
  * β = (2τ - T) / (2τ + T)
@@ -107,7 +107,7 @@ void UPIDController::SetTimeStep(double NewTimeStep)
 }
 
 /**
- * 设置积分器限幅范围
+ * @brief 设置积分器限幅范围
  * @param NewMin 积分器下限
  * @param NewMax 积分器上限
  */
@@ -117,7 +117,7 @@ void UPIDController::SetIntegratorLimits(double NewMin, double NewMax)
     IntegratorMax = NewMax;
 }
 
-/** 重置控制器内部状态 */
+/** @brief 重置控制器内部状态 */
 void UPIDController::Reset()
 {
     Integrator = 0.0;
