@@ -33,6 +33,7 @@ public:
      * - set_pid_velocity: 设置速度控制器增益
      * - set_pid_attitude: 设置姿态控制器增益
      * - set_pid_angle_rate: 设置角速率控制器增益
+     * - set_camera_angles: 设置摄像头云台角度
      * - reset: 重置无人机
      */
     FString HandleCallDrone(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World);

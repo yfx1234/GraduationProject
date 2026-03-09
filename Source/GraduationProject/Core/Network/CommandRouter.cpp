@@ -2,6 +2,7 @@
 #include "GraduationProject/Core/Manager/AgentManager.h"
 #include "GraduationProject/Core/SimGameMode.h"
 #include "GraduationProject/Drone/DroneCommandHandler.h"
+#include "GraduationProject/Drone/DronePawn.h"
 #include "GraduationProject/Turret/TurretCommandHandler.h"
 #include "GraduationProject/Guidance/GuidanceCommandHandler.h"
 #include "GraduationProject/Turret/TurretPawn.h"
@@ -46,7 +47,7 @@ FString UCommandRouter::HandleCommand(const FString& JsonString, UWorld* World)
     }
     if (JsonObject->HasField(TEXT("get_image")))
     {
-        return HandleGetImage(World);
+        return HandleGetImage(JsonObject, World);
     }
     if (JsonObject->HasField(TEXT("call_drone")))
     {
@@ -80,6 +81,7 @@ FString UCommandRouter::HandleCommand(const FString& JsonString, UWorld* World)
     }
     return MakeErrorResponse(TEXT("Unknown command"));
 }
+
 /**
  * @brief 心跳检测响应
  * @return 返回 pong 消息，客户端用于确认连接正常
@@ -180,37 +182,124 @@ FString UCommandRouter::MakeOkResponse(const FString& Message)
 }
 
 /**
- * @brief 获取转台摄像头图像
+ * @brief 获取摄像头图像（支持 Turret 和 Drone）
+ * @param JsonObject 已解析的 JSON 对象，可包含 get_image.id 字段指定 Agent
  * @param World 当前 World
- * @return JSON 响应，包含 Base64 编码的 JPEG 和摄像头参数
+ * @return JSON 响应，包含 Base64 编码的 JPEG、摄像头位置、姿态、FOV
+ * 优先通过 id 查找指定 Agent（DronePawn 或 TurretPawn），
+ * 若无 id 则遍历所有 Agent 查找第一个带摄像头的
  */
-FString UCommandRouter::HandleGetImage(UWorld* World)
+FString UCommandRouter::HandleGetImage(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World)
 {
     if (!World) return MakeErrorResponse(TEXT("No World"));
     UAgentManager* Manager = UAgentManager::GetInstance();
+
+    // 尝试从 get_image 对象中读取 id
+    FString AgentId;
+    const TSharedPtr<FJsonObject>* ImgObj = nullptr;
+    if (JsonObject->TryGetObjectField(TEXT("get_image"), ImgObj))
+    {
+        (*ImgObj)->TryGetStringField(TEXT("id"), AgentId);
+    }
+
+    // 如果指定了 id，直接查找该 Agent
+    if (!AgentId.IsEmpty())
+    {
+        AActor* Agent = Manager->GetAgent(AgentId);
+        if (!Agent) return MakeErrorResponse(FString::Printf(TEXT("Agent '%s' not found"), *AgentId));
+
+        // 尝试作为 DronePawn
+        ADronePawn* Drone = Cast<ADronePawn>(Agent);
+        if (Drone && Drone->DroneSceneCapture)
+        {
+            FString Base64 = Drone->CaptureImageBase64(85);
+            if (Base64.IsEmpty()) return MakeErrorResponse(TEXT("Capture failed"));
+            FVector CamPos = Drone->DroneSceneCapture->GetComponentLocation();
+            FRotator CamRot = Drone->DroneSceneCapture->GetComponentRotation();
+            return FString::Printf(
+                TEXT("{\"status\":\"ok\",\"source\":\"%s\",\"width\":%d,\"height\":%d,\"format\":\"jpeg\",")
+                TEXT("\"camera_pos\":[%.2f,%.2f,%.2f],")
+                TEXT("\"camera_rot\":[%.2f,%.2f,%.2f],")
+                TEXT("\"fov\":%.2f,")
+                TEXT("\"data\":\"%s\"}"),
+                *AgentId, Drone->CameraWidth, Drone->CameraHeight,
+                CamPos.X, CamPos.Y, CamPos.Z,
+                CamRot.Pitch, CamRot.Yaw, CamRot.Roll,
+                Drone->CameraFOV,
+                *Base64);
+        }
+
+        // 尝试作为 TurretPawn
+        ATurretPawn* Turret = Cast<ATurretPawn>(Agent);
+        if (Turret && Turret->TurretSceneCapture)
+        {
+            FString Base64 = Turret->CaptureImageBase64(85);
+            if (Base64.IsEmpty()) return MakeErrorResponse(TEXT("Capture failed"));
+            FVector CamPos = Turret->TurretSceneCapture->GetComponentLocation();
+            FRotator CamRot = Turret->TurretSceneCapture->GetComponentRotation();
+            return FString::Printf(
+                TEXT("{\"status\":\"ok\",\"source\":\"%s\",\"width\":%d,\"height\":%d,\"format\":\"jpeg\",")
+                TEXT("\"camera_pos\":[%.2f,%.2f,%.2f],")
+                TEXT("\"camera_rot\":[%.2f,%.2f,%.2f],")
+                TEXT("\"fov\":%.2f,")
+                TEXT("\"data\":\"%s\"}"),
+                *AgentId, Turret->CameraWidth, Turret->CameraHeight,
+                CamPos.X, CamPos.Y, CamPos.Z,
+                CamRot.Pitch, CamRot.Yaw, CamRot.Roll,
+                Turret->CameraFOV,
+                *Base64);
+        }
+
+        return MakeErrorResponse(FString::Printf(TEXT("Agent '%s' has no camera"), *AgentId));
+    }
+
+    // 未指定 id，遍历所有 Agent 查找第一个带摄像头的（向后兼容）
     TArray<FString> Ids = Manager->GetAllAgentIds();
     for (const FString& Id : Ids)
     {
-        ATurretPawn* Turret = Cast<ATurretPawn>(Manager->GetAgent(Id));
-        if (!Turret || !Turret->TurretSceneCapture) continue;
-        FString Base64 = Turret->CaptureImageBase64(85);
-        if (Base64.IsEmpty())
+        AActor* Agent = Manager->GetAgent(Id);
+
+        // 优先检查 DronePawn
+        ADronePawn* Drone = Cast<ADronePawn>(Agent);
+        if (Drone && Drone->DroneSceneCapture)
         {
-            return MakeErrorResponse(TEXT("Capture failed"));
+            FString Base64 = Drone->CaptureImageBase64(85);
+            if (Base64.IsEmpty()) continue;
+            FVector CamPos = Drone->DroneSceneCapture->GetComponentLocation();
+            FRotator CamRot = Drone->DroneSceneCapture->GetComponentRotation();
+            return FString::Printf(
+                TEXT("{\"status\":\"ok\",\"source\":\"%s\",\"width\":%d,\"height\":%d,\"format\":\"jpeg\",")
+                TEXT("\"camera_pos\":[%.2f,%.2f,%.2f],")
+                TEXT("\"camera_rot\":[%.2f,%.2f,%.2f],")
+                TEXT("\"fov\":%.2f,")
+                TEXT("\"data\":\"%s\"}"),
+                *Id, Drone->CameraWidth, Drone->CameraHeight,
+                CamPos.X, CamPos.Y, CamPos.Z,
+                CamRot.Pitch, CamRot.Yaw, CamRot.Roll,
+                Drone->CameraFOV,
+                *Base64);
         }
-        FVector CamPos = Turret->TurretSceneCapture->GetComponentLocation();
-        FRotator CamRot = Turret->TurretSceneCapture->GetComponentRotation();
-        return FString::Printf(
-            TEXT("{\"status\":\"ok\",\"source\":\"%s\",\"width\":%d,\"height\":%d,\"format\":\"jpeg\",")
-            TEXT("\"camera_pos\":[%.2f,%.2f,%.2f],")
-            TEXT("\"camera_rot\":[%.2f,%.2f,%.2f],")
-            TEXT("\"fov\":%.2f,")
-            TEXT("\"data\":\"%s\"}"),
-            *Id, Turret->CameraWidth, Turret->CameraHeight,
-            CamPos.X, CamPos.Y, CamPos.Z,
-            CamRot.Pitch, CamRot.Yaw, CamRot.Roll,
-            Turret->CameraFOV,
-            *Base64);
+
+        // 检查 TurretPawn
+        ATurretPawn* Turret = Cast<ATurretPawn>(Agent);
+        if (Turret && Turret->TurretSceneCapture)
+        {
+            FString Base64 = Turret->CaptureImageBase64(85);
+            if (Base64.IsEmpty()) continue;
+            FVector CamPos = Turret->TurretSceneCapture->GetComponentLocation();
+            FRotator CamRot = Turret->TurretSceneCapture->GetComponentRotation();
+            return FString::Printf(
+                TEXT("{\"status\":\"ok\",\"source\":\"%s\",\"width\":%d,\"height\":%d,\"format\":\"jpeg\",")
+                TEXT("\"camera_pos\":[%.2f,%.2f,%.2f],")
+                TEXT("\"camera_rot\":[%.2f,%.2f,%.2f],")
+                TEXT("\"fov\":%.2f,")
+                TEXT("\"data\":\"%s\"}"),
+                *Id, Turret->CameraWidth, Turret->CameraHeight,
+                CamPos.X, CamPos.Y, CamPos.Z,
+                CamRot.Pitch, CamRot.Yaw, CamRot.Roll,
+                Turret->CameraFOV,
+                *Base64);
+        }
     }
-    return MakeErrorResponse(TEXT("No turret with camera found"));
+    return MakeErrorResponse(TEXT("No agent with camera found"));
 }

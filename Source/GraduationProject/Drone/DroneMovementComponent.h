@@ -140,6 +140,21 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DroneMovement|State")
     bool bInitialized = false;
 
+    /**
+     * @brief 自动偏航速度阈值 (m/s)
+     * 水平速度低于此值时保持当前偏航角，避免悬停时抖动
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DroneMovement|Parameters")
+    float YawSpeedThreshold = 0.3f;
+
+    /**
+     * @brief 模型偏航偏移角 (度)
+     * 补偿模型正前方与 Actor +X 轴的夹角
+     * 默认 -90°：模型正前方沿 +Y 轴（UE 右方向）
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DroneMovement|Parameters")
+    float YawOffset = -90.0f;
+
 protected:
     /**
      * @brief 执行一帧的控制更新
@@ -185,38 +200,24 @@ protected:
     TArray<double> CalculateMotorSpeeds(const FVector& TorqueCommand, double Thrust);
 
     /**
-     * @brief RK4 四阶 Runge-Kutta 积分一步
-     * @param State 当前状态
-     * @param TimeStep 积分步长
-     * @return 积分后的新状态
+     * @brief Verlet 积分一步（替代 RK4，计算更快）
+     * @param DeltaTime 积分步长
      */
-    FDroneState RK4Update(const FDroneState& State, double TimeStep);
+    void VerletUpdate(double DeltaTime);
 
     /**
      * @brief 计算给定状态下的合外力和合力矩
      * @param State 当前状态
-     * @param OutTotalForce 输出：世界坐标系下的合外力
+     * @param OutForce 输出：世界坐标系下的合外力
      * @param OutTorque 输出：机体坐标系下的合力矩
      */
-    void CalculateTotalForcesAndTorques(const FDroneState& State, TArray<double>& OutTotalForce, TArray<double>& OutTorque);
+    void CalculateTotalForcesAndTorques(const FDroneState& State, FVector& OutForce, FVector& OutTorque);
 
     /**
-     * @brief 计算状态导数向量（13维）
-     * @param State 当前状态
-     * @param TotalForce 世界坐标系合外力
-     * @param Torque 机体坐标系合力矩
-     * @return 13 维导数向量 [ẋ, ẏ, ż, v̇x, v̇y, v̇z, q̇w, q̇x, q̇y, q̇z, ṗ, q̇, ṙ]
+     * @brief 检查并处理地面碰撞
+     * @param GroundZ 地面 Z 坐标（仿真坐标系）
      */
-    TArray<double> Derivatives(const FDroneState& State, const TArray<double>& TotalForce, const TArray<double>& Torque);
-
-    /**
-     * @brief 状态向量加法：State + Derivative * @brief dt
-     * @param State 基准状态
-     * @param Derivative 导数向量（13维）
-     * @param dt 时间步长
-     * @return 更新后的状态
-     */
-    FDroneState StateAdd(const FDroneState& State, const TArray<double>& Derivative, double dt);
+    void CheckGroundCollision(double GroundZ = 0.0);
 
     /**
      * @brief 将机体坐标系向量旋转到世界坐标系
@@ -245,6 +246,33 @@ protected:
 private:
     /** @brief 原始控制命令 */
     TArray<double> ControlCommands;
+
+    /** @brief 是否在地面上（Ground Lock） */
+    bool bGrounded = false;
+
+    /** @brief 上一帧加速度（用于 Verlet 积分） */
+    FVector PrevLinearAcceleration = FVector::ZeroVector;
+
+    /** @brief 上一帧角加速度（用于 Verlet 积分） */
+    FVector PrevAngularAcceleration = FVector::ZeroVector;
+
+    /** @brief 仿真起始高度（用于地面碰撞检测） */
+    double InitialGroundZ = 0.0;
+
+    /** @brief 电机一阶滤波器输出（滤波后的转速） */
+    TArray<double> MotorSpeedsFiltered = {0.0, 0.0, 0.0, 0.0};
+
+    /** @brief 上一次控制更新的 DeltaTime（供电机滤波器使用） */
+    double LastControlDeltaTime = 0.003;
+
+    /** @brief 锁定偏航角（低速时保持的偏航值，弧度） */
+    double LockedYaw = 0.0;
+
+    /** @brief 偏航是否已初始化（首次达到速度阈值后置 true） */
+    bool bYawInitialized = false;
+
+    /** @brief 自动偏航期望角（由 ControlUpdate 计算，弧度） */
+    double DesiredYaw = 0.0;
 
     /** @brief 目标位置 */
     FVector TargetPosition;

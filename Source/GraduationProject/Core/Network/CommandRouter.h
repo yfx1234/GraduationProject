@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
+#include "Dom/JsonObject.h"
 #include "CommandRouter.generated.h"
 
 class UDroneCommandHandler;
@@ -18,7 +19,7 @@ class UGuidanceCommandHandler;
  * - "ping" → HandlePing()
  * - "sim_pause/sim_resume/sim_reset" → 仿真控制
  * - "get_agent_list" → 获取智能体列表
- * - "get_image" → 获取转台摄像头图像
+ * - "get_image" → 获取摄像头图像（支持 Turret 和 Drone）
  * - "call_drone/get_drone_state" → DroneCommandHandler
  * - "call_turret/get_turret_state" → TurretCommandHandler
  * - "call_guidance/get_guidance_state" → GuidanceCommandHandler
@@ -72,11 +73,12 @@ private:
     FString HandleGetAgentList();
 
     /**
-     * @brief 获取转台摄像头图像（Base64 编码的 JPEG）
+     * @brief 获取摄像头图像（支持 Turret 和 Drone）
+     * @param JsonObject 已解析的 JSON 对象，可包含 get_image.id 字段指定 Agent
      * @param World 当前 World
      * @return JSON 响应，包含 data(Base64)、camera_pos、camera_rot、fov 等字段
      */
-    FString HandleGetImage(UWorld* World);
+    FString HandleGetImage(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World);
 
     /**
      * @brief 构造错误响应 JSON

@@ -3,6 +3,7 @@
 #include "DroneApi.h"
 #include "DroneMovementComponent.h"
 #include "GraduationProject/Core/Manager/AgentManager.h"
+#include "Components/SceneCaptureComponent2D.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 
@@ -112,6 +113,14 @@ FString UDroneCommandHandler::HandleCallDrone(const TSharedPtr<FJsonObject>& Jso
         Api->SetAngleRateControllerGains(Kp);
         return MakeOk(FString::Printf(TEXT("angle_rate P: Kp=%.2f"), Kp));
     }
+    if (Function == TEXT("set_camera_angles"))
+    {
+        float Pitch = (*CmdObj)->GetNumberField(TEXT("pitch"));
+        float Yaw = (*CmdObj)->GetNumberField(TEXT("yaw"));
+        ADronePawn* Drone = Cast<ADronePawn>(UAgentManager::GetInstance()->GetAgent(DroneId));
+        if (Drone) Drone->SetCameraAngles(Pitch, Yaw);
+        return MakeOk(FString::Printf(TEXT("set_camera_angles pitch=%.1f yaw=%.1f"), Pitch, Yaw));
+    }
     if (Function == TEXT("reset"))
     {
         Api->Reset();
@@ -157,6 +166,7 @@ FString UDroneCommandHandler::HandleGetDroneState(const TSharedPtr<FJsonObject>&
         TEXT("\"velocity\":[%.4f,%.4f,%.4f],")
         TEXT("\"orientation\":{\"roll\":%.2f,\"pitch\":%.2f,\"yaw\":%.2f},")
         TEXT("\"motor_speeds\":[%.1f,%.1f,%.1f,%.1f],")
+        TEXT("\"camera_pitch\":%.2f,\"camera_yaw\":%.2f,")
         TEXT("\"control_mode\":\"%s\"}"),
         *DroneId,
         Pos.X, Pos.Y, Pos.Z,
@@ -166,5 +176,6 @@ FString UDroneCommandHandler::HandleGetDroneState(const TSharedPtr<FJsonObject>&
         Motors.Num() >= 4 ? Motors[1] : 0.0f,
         Motors.Num() >= 4 ? Motors[2] : 0.0f,
         Motors.Num() >= 4 ? Motors[3] : 0.0f,
+        Drone->GetCameraCurrentPitch(), Drone->GetCameraCurrentYaw(),
         *ModeName);
 }

@@ -22,6 +22,7 @@ UDroneMovementComponent::UDroneMovementComponent()
 void UDroneMovementComponent::BeginPlay()
 {
     Super::BeginPlay();
+    Parameters.InitializeComputed();
     InitializeControllers();
     ComputeControlAllocation();
     bInitialized = true;
@@ -36,11 +37,40 @@ void UDroneMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
     if (!bInitialized) return;
     if (CurrentControlMode == EDroneControlMode::Idle) return;
-    ControlUpdate(DeltaTime);
+
+    // --- AirSim 风格：控制器和物理在同一循环中以相同频率更新 ---
+    // AirSim: PhysicsBody::update() → updateSensorsAndController() → updatePhysics()
+    // 控制器每个物理子步都更新，产生平滑的电机命令
     double SubStepTime = Parameters.TimeStep;
     int32 NumSubSteps = FMath::Max(1, FMath::CeilToInt(DeltaTime / SubStepTime));
-    SubStepTime = DeltaTime / NumSubSteps; 
-    for (int32 i = 0; i < NumSubSteps; ++i) CurrentState = RK4Update(CurrentState, SubStepTime);
+    SubStepTime = DeltaTime / NumSubSteps;
+
+    FDroneState BackupState = CurrentState;
+    for (int32 i = 0; i < NumSubSteps; ++i)
+    {
+        // 控制更新（每个子步都运行，与物理同频）
+        ControlUpdate(SubStepTime);
+
+        // 物理更新
+        VerletUpdate(SubStepTime);
+        CheckGroundCollision(InitialGroundZ);
+
+        // NaN 保护
+        if (CurrentState.HasNaN())
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[DroneMovement] NaN detected, reverting to backup state"));
+            CurrentState = BackupState;
+            CurrentState.AngRollRate = 0.0;
+            CurrentState.AngPitchRate = 0.0;
+            CurrentState.AngYawRate = 0.0;
+            PrevLinearAcceleration = FVector::ZeroVector;
+            PrevAngularAcceleration = FVector::ZeroVector;
+            break;
+        }
+    }
+
+    // 速度裁剪防发散
+    CurrentState.ClampVelocities(50.0, 50.0);
 }
 
 /**
@@ -51,44 +81,56 @@ void UDroneMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType
 void UDroneMovementComponent::SetParameters(const FDroneParameters& NewParameters)
 {
     Parameters = NewParameters;
+    Parameters.InitializeComputed();
     ComputeControlAllocation();
     InitializeControllers();
 }
 
 /**
  * @brief 创建并初始化所有 PD/PID 控制器
- * 位置环(PD)：Kp=1.0, 输出限幅 2.0 m/s
- * 速度环(PID)：Kp=2.0, Ki=0.2, 输出限幅 3.0 m/s²，积分器 ±5.0
- * 姿态环(PD)：Kp=10.0（Yaw 减半为 5.0），输出限幅 3.0 rad/s
- * 角速率环(PID)：Kp=0.5（Yaw 减半为 0.25），输出限幅 1.0 N·m（Yaw 减半为 0.5）
+ * 位置环(PD)：Kp=1.0, Kd=0.3, 输出限幅 2.0 m/s
+ * 速度环(PID)：Kp=2.0, Ki=0.1, Kd=0.1, 输出限幅 3.0 m/s²
+ * 姿态环(PD)：Kp=6.0, Kd=0.3（Yaw 减半），输出限幅 3.0 rad/s
+ * 角速率环(PID)：Kp=0.5, Ki=0.0, Kd=0.0，输出限幅 1.0 N·m
  */
 void UDroneMovementComponent::InitializeControllers()
 {
     double Ts = Parameters.TimeStep;
+
+    // ── 位置环 PD ── Kp=1.0, Kd=0.3
     float PosPGain = 1.0f;
-    float VelMaxLimit = 2.0f; 
+    float PosDGain = 0.3f;
+    float VelMaxLimit = 2.0f;
     PxController = NewObject<UPDController>(this);
-    PxController->Initialize(PosPGain, 0.0, 0.0, VelMaxLimit, Ts);
+    PxController->Initialize(PosPGain, PosDGain, 0.1, VelMaxLimit, Ts);
     PyController = NewObject<UPDController>(this);
-    PyController->Initialize(PosPGain, 0.0, 0.0, VelMaxLimit, Ts);
+    PyController->Initialize(PosPGain, PosDGain, 0.1, VelMaxLimit, Ts);
     PzController = NewObject<UPDController>(this);
-    PzController->Initialize(PosPGain, 0.0, 0.0, VelMaxLimit, Ts);
+    PzController->Initialize(PosPGain, PosDGain, 0.1, VelMaxLimit, Ts);
+
+    // ── 速度环 PID ── Kp=2.0, Ki=0.1, Kd=0.1
     float VelPGain = 2.0f;
-    float VelDGain = 0.0f;
+    float VelIGain = 0.1f;
+    float VelDGain = 0.1f;
     VxController = NewObject<UPIDController>(this);
-    VxController->Initialize(VelPGain, 0.2, VelDGain, 0.05, 3.0, Ts, -5.0, 5.0);
+    VxController->Initialize(VelPGain, VelIGain, VelDGain, 0.1, 2.0, Ts, -5.0, 5.0);
     VyController = NewObject<UPIDController>(this);
-    VyController->Initialize(VelPGain, 0.2, VelDGain, 0.05, 3.0, Ts, -5.0, 5.0);
+    VyController->Initialize(VelPGain, VelIGain, VelDGain, 0.1, 2.0, Ts, -5.0, 5.0);
     VzController = NewObject<UPIDController>(this);
-    VzController->Initialize(VelPGain, 0.2, VelDGain, 0.05, 3.0, Ts, -5.0, 5.0);
-    float AnglePGain = 10.0f;
+    VzController->Initialize(VelPGain, VelIGain, VelDGain, 0.1, 2.0, Ts, -5.0, 5.0);
+
+    // ── 姿态环 PD ── Kp=6.0, Kd=0.3
+    float AnglePGain = 6.0f;
+    float AngleDGain = 0.3f;
     float AngVelMaxLimit = 3.0f;
     RollController = NewObject<UPDController>(this);
-    RollController->Initialize(AnglePGain, 0.0, 0.0, AngVelMaxLimit, Ts);
+    RollController->Initialize(AnglePGain, AngleDGain, 0.1, AngVelMaxLimit, Ts);
     PitchController = NewObject<UPDController>(this);
-    PitchController->Initialize(AnglePGain, 0.0, 0.0, AngVelMaxLimit, Ts);
+    PitchController->Initialize(AnglePGain, AngleDGain, 0.1, AngVelMaxLimit, Ts);
     YawController = NewObject<UPDController>(this);
-    YawController->Initialize(AnglePGain * 0.5f, 0.0, 0.0, AngVelMaxLimit, Ts);
+    YawController->Initialize(AnglePGain * 0.5f, AngleDGain * 0.5f, 0.1, AngVelMaxLimit, Ts);
+
+    // ── 角速率环 PID ── Kp=0.5, Ki=0, Kd=0（内环宜快，纯P足够）
     float RatePGain = 0.5f;
     float TorqueMaxLimit = 1.0f;
     RollRateController = NewObject<UPIDController>(this);
@@ -148,6 +190,7 @@ void UDroneMovementComponent::ComputeControlAllocation()
  */
 void UDroneMovementComponent::ControlUpdate(double DeltaTime)
 {
+    LastControlDeltaTime = DeltaTime;  // 保存帧时间供电机滤波器使用
     double ControlTimeStep = FMath::Max(0.001, static_cast<double>(DeltaTime));
     if (PxController) PxController->SetTimeStep(ControlTimeStep);
     if (PyController) PyController->SetTimeStep(ControlTimeStep);
@@ -170,6 +213,26 @@ void UDroneMovementComponent::ControlUpdate(double DeltaTime)
         return;
     case EDroneControlMode::Position:
         {
+            // 计算自动偏航：从当前位置到目标位置的方向（稳定，不产生反馈环）
+            FVector Pos = CurrentState.GetPosition();
+            double DirX = TargetPosition.X - Pos.X;
+            double DirY = TargetPosition.Y - Pos.Y;
+            double DirMag = FMath::Sqrt(DirX * DirX + DirY * DirY);
+            if (DirMag > YawSpeedThreshold)
+            {
+                DesiredYaw = FMath::Atan2(DirY, DirX) + FMath::DegreesToRadians(YawOffset);
+                LockedYaw = DesiredYaw;
+                bYawInitialized = true;
+            }
+            else if (bYawInitialized)
+            {
+                DesiredYaw = LockedYaw;
+            }
+            else
+            {
+                DesiredYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
+            }
+
             FVector VelCmd = PositionLoop(TargetPosition);
             FVector AccCmd = VelocityLoop(VelCmd, ThrustCommand);
             FVector AngVelCmd = AttitudeLoop(AccCmd);
@@ -178,6 +241,23 @@ void UDroneMovementComponent::ControlUpdate(double DeltaTime)
         break;
     case EDroneControlMode::Velocity:
         {
+            // 计算自动偏航：从目标速度方向（稳定，不产生反馈环）
+            double VelMag = FMath::Sqrt(TargetVelocity.X * TargetVelocity.X + TargetVelocity.Y * TargetVelocity.Y);
+            if (VelMag > YawSpeedThreshold)
+            {
+                DesiredYaw = FMath::Atan2(TargetVelocity.Y, TargetVelocity.X) + FMath::DegreesToRadians(YawOffset);
+                LockedYaw = DesiredYaw;
+                bYawInitialized = true;
+            }
+            else if (bYawInitialized)
+            {
+                DesiredYaw = LockedYaw;
+            }
+            else
+            {
+                DesiredYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
+            }
+
             FVector AccCmd = VelocityLoop(TargetVelocity, ThrustCommand);
             FVector AngVelCmd = AttitudeLoop(AccCmd);
             TorqueCommand = AngularVelocityLoop(AngVelCmd);
@@ -188,6 +268,7 @@ void UDroneMovementComponent::ControlUpdate(double DeltaTime)
             double RollDes = FMath::DegreesToRadians(TargetAttitude.Roll);
             double PitchDes = FMath::DegreesToRadians(TargetAttitude.Pitch);
             double YawDes = FMath::DegreesToRadians(TargetAttitude.Yaw);
+            // UE FRotator 的 Roll/Pitch 与控制分配矩阵符号相反，需要取反
             FRotator CurrentRot = CurrentState.GetRotator();
             double Roll = -FMath::DegreesToRadians(CurrentRot.Roll);
             double Pitch = -FMath::DegreesToRadians(CurrentRot.Pitch);
@@ -221,8 +302,10 @@ void UDroneMovementComponent::ControlUpdate(double DeltaTime)
  * @brief 从力矩和推力命令计算四个电机的转速
  * @param TorqueCommand 三轴力矩命令
  * @param Thrust 总推力命令
- * @return 四个电机转速 
- * [T, τx, τy, τz]^T = G * [ω1², ω2², ω3², ω4²]^T
+ * @return 四个电机转速
+ * 1. 逆分配矩阵求解 ω²
+ * 2. Mixer 饱和补偿（下溢偏移 + 上溢缩放）
+ * 3. 一阶低通滤波模拟电机惯性
  */
 TArray<double> UDroneMovementComponent::CalculateMotorSpeeds(const FVector& TorqueCommand, double Thrust)
 {
@@ -231,62 +314,153 @@ TArray<double> UDroneMovementComponent::CalculateMotorSpeeds(const FVector& Torq
     for (int32 i = 0; i < 4; ++i)
         for (int32 j = 0; j < 4; ++j)
             OmegaSquared[i] += GInv[i][j] * Input[j];
+
     TArray<double> MotorSpeeds;
+    MotorSpeeds.SetNum(4);
     for (int32 i = 0; i < 4; ++i)
+        MotorSpeeds[i] = FMath::Sqrt(FMath::Max(0.0, OmegaSquared[i]));
+
+    // --- Mixer 饱和补偿 ---
+    // 下溢补偿：若任一电机低于最小值，所有电机加偏移
+    double MinSpeed = MotorSpeeds[0];
+    for (int32 i = 1; i < 4; ++i)
+        MinSpeed = FMath::Min(MinSpeed, MotorSpeeds[i]);
+    if (MinSpeed < Parameters.MinMotorSpeed)
     {
-        double Omega = FMath::Sqrt(FMath::Max(0.0, OmegaSquared[i])); // 防止负数开方
-        Omega = FMath::Clamp(Omega, Parameters.MinMotorSpeed, Parameters.MaxMotorSpeed);
-        MotorSpeeds.Add(Omega);
+        double Undershoot = Parameters.MinMotorSpeed - MinSpeed;
+        for (int32 i = 0; i < 4; ++i)
+            MotorSpeeds[i] += Undershoot;
     }
-    return MotorSpeeds;
+
+    // 上溢补偿：若任一电机超过最大值，等比缩放
+    double MaxSpeed = MotorSpeeds[0];
+    for (int32 i = 1; i < 4; ++i)
+        MaxSpeed = FMath::Max(MaxSpeed, MotorSpeeds[i]);
+    if (MaxSpeed > Parameters.MaxMotorSpeed)
+    {
+        double Scale = Parameters.MaxMotorSpeed / MaxSpeed;
+        for (int32 i = 0; i < 4; ++i)
+            MotorSpeeds[i] *= Scale;
+    }
+
+    // 最终 Clamp
+    for (int32 i = 0; i < 4; ++i)
+        MotorSpeeds[i] = FMath::Clamp(MotorSpeeds[i], Parameters.MinMotorSpeed, Parameters.MaxMotorSpeed);
+
+    // --- 一阶低通滤波模拟电机惯性 ---
+    // 使用控制更新的实际 DeltaTime，而非物理子步步长
+    if (MotorSpeedsFiltered.Num() < 4)
+        MotorSpeedsFiltered = {0.0, 0.0, 0.0, 0.0};
+    double FilterDt = FMath::Max(0.001, LastControlDeltaTime);
+    double Alpha = FMath::Exp(-FilterDt / FMath::Max(0.001, Parameters.MotorFilterTC));
+    for (int32 i = 0; i < 4; ++i)
+        MotorSpeedsFiltered[i] = MotorSpeedsFiltered[i] * Alpha + MotorSpeeds[i] * (1.0 - Alpha);
+
+    return MotorSpeedsFiltered;
 }
 
 /**
- * @brief RK4 四阶积分一步
- * @param State 当前状态
- * @param TimeStep 积分步长
- * @return 积分后的新状态
- * k1 = f(t, y)
- * k2 = f(t+h/2, y + h/2·k1)
- * k3 = f(t+h/2, y + h/2·k2)
- * k4 = f(t+h, y + h·k3)
- * y(t+h) = y(t) + h/6·(k1 + 2k2 + 2k3 + k4)
+ * @brief Verlet 积分一步
+ * @param DeltaTime 积分步长
+ * 使用 Velocity Verlet 方法：
+ *   x(t+dt) = x(t) + v(t)*dt + 0.5*a(t)*dt²
+ *   a(t+dt) = F(t+dt) / m
+ *   v(t+dt) = v(t) + 0.5*(a(t) + a(t+dt))*dt
+ * 角度更新使用角速度和 AngleAxis 方法
  */
-FDroneState UDroneMovementComponent::RK4Update(const FDroneState& State, double TimeStep)
+void UDroneMovementComponent::VerletUpdate(double DeltaTime)
 {
-    TArray<double> TotalForce, Torque;
-    FDroneState TempState = State;
-    CalculateTotalForcesAndTorques(TempState, TotalForce, Torque);
-    TArray<double> k1 = Derivatives(TempState, TotalForce, Torque);
-    TempState = StateAdd(State, k1, TimeStep * 0.5);
-    CalculateTotalForcesAndTorques(TempState, TotalForce, Torque);
-    TArray<double> k2 = Derivatives(TempState, TotalForce, Torque);
-    TempState = StateAdd(State, k2, TimeStep * 0.5);
-    CalculateTotalForcesAndTorques(TempState, TotalForce, Torque);
-    TArray<double> k3 = Derivatives(TempState, TotalForce, Torque);
-    TempState = StateAdd(State, k3, TimeStep);
-    CalculateTotalForcesAndTorques(TempState, TotalForce, Torque);
-    TArray<double> k4 = Derivatives(TempState, TotalForce, Torque);
-    TArray<double> FinalDerivative;
-    for (int32 i = 0; i < k1.Num(); ++i)
-        FinalDerivative.Add((k1[i] + 2.0*k2[i] + 2.0*k3[i] + k4[i]) / 6.0);
-    FDroneState NewState = StateAdd(State, FinalDerivative, TimeStep);
-    NewState.NormalizeQuaternion();
-    return NewState;
+    const double dt = DeltaTime;
+    const double halfDt = 0.5 * dt;
+    const double halfDtSq = 0.5 * dt * dt;
+
+    // --- Ground Lock：地面上时检查推力的垂直分量是否超过重力 ---
+    if (bGrounded)
+    {
+        FVector Force, Torque;
+        CalculateTotalForcesAndTorques(CurrentState, Force, Torque);
+        // 检查推力在世界 Z 轴的分量是否超过重力
+        double WeightForce = Parameters.Mass * Parameters.Gravity;
+        if (Force.Z > WeightForce * 1.05)  // 5% 裕量防止抢起又落下
+        {
+            bGrounded = false;
+            UE_LOG(LogTemp, Log, TEXT("[DroneMovement] Lifting off ground, Force.Z=%.2f > Weight=%.2f"),
+                Force.Z, WeightForce);
+        }
+        else
+        {
+            return; // 留在地面，不更新状态
+        }
+    }
+
+    // --- 位置更新：x(t+dt) = x(t) + v(t)*dt + 0.5*a(t)*dt² ---
+    FVector Pos = CurrentState.GetPosition();
+    FVector Vel = CurrentState.GetVelocity();
+    FVector AngVel = CurrentState.GetAngularVelocity();
+
+    Pos += Vel * dt + PrevLinearAcceleration * halfDtSq;
+    CurrentState.SetPosition(Pos);
+
+    // --- 姿态更新：用角速度计算角度增量 ---
+    FVector AvgAngVel = AngVel + PrevAngularAcceleration * halfDt;
+    double AnglePerUnit = AvgAngVel.Size();
+    if (AnglePerUnit > KINDA_SMALL_NUMBER)
+    {
+        FQuat DeltaQ(AvgAngVel / AnglePerUnit, AnglePerUnit * dt);
+        FQuat CurrentQ = CurrentState.GetQuaternion();
+        FQuat NewQ = CurrentQ * DeltaQ;
+        NewQ.Normalize();
+        CurrentState.SetQuaternion(NewQ);
+    }
+
+    // --- 计算新位置处的力和力矩 ---
+    FVector Force, Torque;
+    CalculateTotalForcesAndTorques(CurrentState, Force, Torque);
+
+    // --- 线加速度：a(t+dt) = F/m ---
+    FVector NewLinearAcc = Force / Parameters.Mass + FVector(0.0, 0.0, -Parameters.Gravity);
+
+    // --- 角加速度：欧拉旋转方程 ---
+    double Jx = Parameters.Jx, Jy = Parameters.Jy, Jz = Parameters.Jz;
+    double p = CurrentState.AngRollRate;
+    double q = CurrentState.AngPitchRate;
+    double r = CurrentState.AngYawRate;
+    FVector AngMomentumRate;
+    AngMomentumRate.X = (Torque.X - (Jz - Jy) * q * r) / Jx;
+    AngMomentumRate.Y = (Torque.Y - (Jx - Jz) * p * r) / Jy;
+    AngMomentumRate.Z = (Torque.Z - (Jy - Jx) * p * q) / Jz;
+
+    // --- 速度更新：v(t+dt) = v(t) + 0.5*(a(t) + a(t+dt))*dt ---
+    FVector NewVel = Vel + (PrevLinearAcceleration + NewLinearAcc) * halfDt;
+    CurrentState.SetVelocity(NewVel);
+
+    FVector NewAngVel = AngVel + (PrevAngularAcceleration + AngMomentumRate) * halfDt;
+    CurrentState.AngRollRate = NewAngVel.X;
+    CurrentState.AngPitchRate = NewAngVel.Y;
+    CurrentState.AngYawRate = NewAngVel.Z;
+
+    // --- 保存加速度供下一帧使用 ---
+    PrevLinearAcceleration = NewLinearAcc;
+    PrevAngularAcceleration = AngMomentumRate;
+
+    // --- 四元数归一化 ---
+    CurrentState.NormalizeQuaternion();
 }
 
 /**
  * @brief 计算给定状态下的合外力和合力矩
  * @param State 当前状态
- * @param OutTotalForce 世界坐标系合外力 [Fx, Fy, Fz]
- * @param OutTorque 机体坐标系合力矩 [τx, τy, τz]
+ * @param OutForce 世界坐标系合外力（不含重力，重力在 Verlet 中单独处理）
+ * @param OutTorque 机体坐标系合力矩
  */
-void UDroneMovementComponent::CalculateTotalForcesAndTorques(const FDroneState& State, TArray<double>& OutTotalForce, TArray<double>& OutTorque)
+void UDroneMovementComponent::CalculateTotalForcesAndTorques(const FDroneState& State, FVector& OutForce, FVector& OutTorque)
 {
-    OutTotalForce.SetNum(3);
-    OutTorque.SetNum(3);
+    OutForce = FVector::ZeroVector;
+    OutTorque = FVector::ZeroVector;
+
     double TotalThrust = 0.0;
-    TArray<double> TotalTorque = {0.0, 0.0, 0.0};
+    FVector TotalTorque = FVector::ZeroVector;
+
     if (State.MotorSpeeds.Num() >= 4)
     {
         TArray<double> OmegaSq = {
@@ -298,93 +472,83 @@ void UDroneMovementComponent::CalculateTotalForcesAndTorques(const FDroneState& 
         for (int32 i = 0; i < 4; ++i)
         {
             TotalThrust += G[0][i] * OmegaSq[i];
-            TotalTorque[0] += G[1][i] * OmegaSq[i];
-            TotalTorque[1] += G[2][i] * OmegaSq[i];
-            TotalTorque[2] += G[3][i] * OmegaSq[i];
+            TotalTorque.X += G[1][i] * OmegaSq[i];
+            TotalTorque.Y += G[2][i] * OmegaSq[i];
+            TotalTorque.Z += G[3][i] * OmegaSq[i];
         }
     }
+
+    // 推力向量从机体 Z 轴转到世界坐标系
     FVector ThrustVectorBody(0.0, 0.0, TotalThrust);
     FQuat Orientation = State.GetQuaternion();
     FVector ThrustVectorWorld = RotateBodyToWorld(ThrustVectorBody, Orientation);
-    FVector Gravity(0.0, 0.0, -Parameters.Mass * Parameters.Gravity);
+
+    // 阻力（简化模型，Phase 4 将升级为各向异性）
     FVector Velocity = State.GetVelocity();
     FVector Drag = -Parameters.DragCoefficient * Velocity.Size() * Velocity;
-    FVector TotalForceVec = ThrustVectorWorld + Gravity + Drag;
-    OutTotalForce[0] = TotalForceVec.X;
-    OutTotalForce[1] = TotalForceVec.Y;
-    OutTotalForce[2] = TotalForceVec.Z;
-    OutTorque[0] = TotalTorque[0];
-    OutTorque[1] = TotalTorque[1];
-    OutTorque[2] = TotalTorque[2];
+
+    OutForce = ThrustVectorWorld + Drag;
+    OutTorque = TotalTorque;
 }
 
 /**
- * @brief 计算 13 维状态导数向量
- * @param State 当前状态
- * @param TotalForce 世界坐标系合外力
- * @param Torque 机体坐标系合力矩
- * @return 导数向量 : [ẋ, ẏ, ż, v̇x, v̇y, v̇z, q̇w, q̇x, q̇y, q̇z, ṗ, q̇, ṙ]
- * 位置导数 = 速度 
- * 速度导数 = F/m 
- * 四元数导数 = 1/2 * q ⊗ ω
- *  [q̇w]         [0 -p -q -r] [qw]
- *  [q̇x] = 1/2 * [p  0  r -q] [qx]
- *  [q̇y]         [q -r  0  p] [qy]
- *  [q̇z]         [r  q -p  0] [qz]
- * 角速度导数 = J⁻¹·(τ - ω×Jω) 
- *                                     [p]   [Jx*p]   [q*r*(Jz-Jy)]
- *  J * ω_dot  = τ - ω × (J * ω) = τ - [q] × [Jy*q] = [p*r*(Jx-Jz)]
- *                                     [r]   [Jz*r]   [p*q*(Jy-Jx)]
+ * @brief 检查并处理地面碰撞
+ * @param GroundZ 地面 Z 坐标（仿真坐标系）
+ * 当无人机位置低于地面且向下运动时：
+ * - 将位置钦定到地面
+ * - 清除向下速度
+ * - 使用恢复系数处理弹跳
+ * - Ground Lock：低速着陆时锁定姿态
  */
-TArray<double> UDroneMovementComponent::Derivatives(const FDroneState& State, const TArray<double>& TotalForce, const TArray<double>& Torque)
+void UDroneMovementComponent::CheckGroundCollision(double GroundZ)
 {
-    TArray<double> Deriv;
-    Deriv.Add(State.Vx); 
-    Deriv.Add(State.Vy); 
-    Deriv.Add(State.Vz); 
-    double m = Parameters.Mass;
-    Deriv.Add(TotalForce[0] / m);
-    Deriv.Add(TotalForce[1] / m);
-    Deriv.Add(TotalForce[2] / m);
-    double p = State.AngRollRate, q = State.AngPitchRate, r = State.AngYawRate;
-    double qw = State.Qw, qx = State.Qx, qy = State.Qy, qz = State.Qz;
-    Deriv.Add(0.5 * (-p*qx - q*qy - r*qz)); 
-    Deriv.Add(0.5 * (p*qw + r*qy - q*qz));  
-    Deriv.Add(0.5 * (q*qw - r*qx + p*qz));   
-    Deriv.Add(0.5 * (r*qw + q*qx - p*qy));  
-    double Jx = Parameters.Jx, Jy = Parameters.Jy, Jz = Parameters.Jz;
-    Deriv.Add((Torque[0] - (Jz - Jy) * q * r) / Jx);  
-    Deriv.Add((Torque[1] - (Jx - Jz) * p * r) / Jy);  
-    Deriv.Add((Torque[2] - (Jy - Jx) * p * q) / Jz);  
-    return Deriv;
-}
+    if (CurrentState.Z <= GroundZ && CurrentState.Vz < 0.0)
+    {
+        CurrentState.Z = GroundZ;
 
-/**
- * @brief NewState = State + Derivative × dt
- * @param State 基准状态
- * @param Derivative 13 维导数向量
- * @param dt 时间步长
- * @return 更新后的新状态
- * [X,Y,Z, Vx,Vy,Vz, Qw,Qx,Qy,Qz, p,q,r]
- */
-FDroneState UDroneMovementComponent::StateAdd(const FDroneState& State, const TArray<double>& Derivative, double dt)
-{
-    FDroneState NewState = State;
-    if (Derivative.Num() < 13) return NewState;
-    NewState.X += Derivative[0] * dt;
-    NewState.Y += Derivative[1] * dt;
-    NewState.Z += Derivative[2] * dt;
-    NewState.Vx += Derivative[3] * dt;
-    NewState.Vy += Derivative[4] * dt;
-    NewState.Vz += Derivative[5] * dt;
-    NewState.Qw += Derivative[6] * dt;
-    NewState.Qx += Derivative[7] * dt;
-    NewState.Qy += Derivative[8] * dt;
-    NewState.Qz += Derivative[9] * dt;
-    NewState.AngRollRate += Derivative[10] * dt;
-    NewState.AngPitchRate += Derivative[11] * dt;
-    NewState.AngYawRate += Derivative[12] * dt;
-    return NewState;
+        // 判断是否为低速着陆（垂直速度占主导）
+        double SpeedXY = FMath::Sqrt(CurrentState.Vx * CurrentState.Vx + CurrentState.Vy * CurrentState.Vy);
+        bool bLanding = FMath::Abs(CurrentState.Vz) > SpeedXY;
+
+        if (bLanding && FMath::Abs(CurrentState.Vz) < 1.0)
+        {
+            // Ground Lock：低速着陆，锁定在地面
+            bGrounded = true;
+            CurrentState.Vx = 0.0;
+            CurrentState.Vy = 0.0;
+            CurrentState.Vz = 0.0;
+            CurrentState.AngRollRate = 0.0;
+            CurrentState.AngPitchRate = 0.0;
+            CurrentState.AngYawRate = 0.0;
+
+            // 矫正姿态：Roll/Pitch 归零，保留 Yaw
+            FRotator Rot = CurrentState.GetRotator();
+            Rot.Roll = 0.0f;
+            Rot.Pitch = 0.0f;
+            CurrentState.SetQuaternion(Rot.Quaternion());
+
+            PrevLinearAcceleration = FVector::ZeroVector;
+            PrevAngularAcceleration = FVector::ZeroVector;
+
+            UE_LOG(LogTemp, Log, TEXT("[DroneMovement] Ground locked"));
+        }
+        else
+        {
+            // 弹跳响应：反弹垂直速度
+            double Restitution = Parameters.Restitution;
+            CurrentState.Vz = -CurrentState.Vz * Restitution;
+
+            // 摩擦衰减水平速度
+            double FrictionFactor = 1.0 - Parameters.Friction * 0.5;
+            CurrentState.Vx *= FrictionFactor;
+            CurrentState.Vy *= FrictionFactor;
+
+            // 角速度衰减
+            CurrentState.AngRollRate *= 0.9;
+            CurrentState.AngPitchRate *= 0.9;
+            CurrentState.AngYawRate *= 0.9;
+        }
+    }
 }
 
 /**
@@ -438,18 +602,29 @@ FVector UDroneMovementComponent::AttitudeLoop(const FVector& AccelerationCommand
     double AxDes = AccelerationCommand.X;
     double AyDes = AccelerationCommand.Y;
     double g = Parameters.Gravity;
+
+    // 从期望水平加速度计算期望倾斜角
     double RollDes = FMath::Atan2(-AyDes, g);
     double PitchDes = FMath::Atan2(AxDes, g);
-    double YawDes = FMath::DegreesToRadians(TargetAttitude.Yaw);
-    RollDes = FMath::Clamp(RollDes, -0.3, 0.3);
-    PitchDes = FMath::Clamp(PitchDes, -0.3, 0.3);
+
+    // 自动偏航角已在 ControlUpdate 中从目标方向计算好（存在 DesiredYaw）
+    double YawDes = DesiredYaw;
+
+    // 限制最大倾斜角（约12°，比 AirSim 默认的 ~15° 稍保守，确保平滑）
+    RollDes = FMath::Clamp(RollDes, -0.21, 0.21);
+    PitchDes = FMath::Clamp(PitchDes, -0.21, 0.21);
+
+    // UE FRotator 的 Roll/Pitch 正方向与控制分配矩阵 G 的力矩符号相反
+    // 取反使 PD 控制器的误差方向与实际力矩方向一致
     FRotator CurrentRot = CurrentState.GetRotator();
     double Roll = -FMath::DegreesToRadians(CurrentRot.Roll);
     double Pitch = -FMath::DegreesToRadians(CurrentRot.Pitch);
     double Yaw = FMath::DegreesToRadians(CurrentRot.Yaw);
+
     double RollTarget = Roll + NormalizeAngle(RollDes - Roll);
     double PitchTarget = Pitch + NormalizeAngle(PitchDes - Pitch);
     double YawTarget = Yaw + NormalizeAngle(YawDes - Yaw);
+
     double RollRateCmd = RollController ? RollController->Update(RollTarget, Roll) : 0.0;
     double PitchRateCmd = PitchController ? PitchController->Update(PitchTarget, Pitch) : 0.0;
     double YawRateCmd = YawController ? YawController->Update(YawTarget, Yaw) : 0.0;
@@ -472,6 +647,7 @@ FVector UDroneMovementComponent::AngularVelocityLoop(const FVector& AngularVeloc
 /**
  * @brief 设置初始状态
  * @param InitialState 初始状态
+ * 记录起始高度用于地面碰撞检测，初始化电机滤波器
  */
 void UDroneMovementComponent::SetInitialState(const FDroneState& InitialState)
 {
@@ -479,6 +655,25 @@ void UDroneMovementComponent::SetInitialState(const FDroneState& InitialState)
     double HoverSpeed = Parameters.GetHoverMotorSpeed();
     if (CurrentState.MotorSpeeds.Num() < 4)
         CurrentState.MotorSpeeds = {HoverSpeed, HoverSpeed, HoverSpeed, HoverSpeed};
+
+    // 记录起始地面高度：用初始 Z 位置作为地面参考
+    // 无人机初始生成在地面上，起始为 Ground Lock 状态
+    InitialGroundZ = CurrentState.Z;
+    bGrounded = true;
+
+    // 初始化电机滤波器到悬停转速
+    MotorSpeedsFiltered = CurrentState.MotorSpeeds;
+
+    // 清零加速度历史
+    PrevLinearAcceleration = FVector::ZeroVector;
+    PrevAngularAcceleration = FVector::ZeroVector;
+
+    // 重置自动偏航状态
+    LockedYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
+    bYawInitialized = false;
+
+    UE_LOG(LogTemp, Log, TEXT("[DroneMovement] InitialState set, HoverSpeed=%.1f rad/s, GroundZ=%.2f, Grounded=true"),
+        HoverSpeed, InitialGroundZ);
 }
 
 /**
@@ -519,6 +714,10 @@ void UDroneMovementComponent::ResetState(const FDroneState& NewState)
 {
     CurrentState = NewState;
     ResetAllControllers();
+
+    // 重置自动偏航状态
+    LockedYaw = FMath::DegreesToRadians(NewState.GetRotator().Yaw);
+    bYawInitialized = false;
 }
 
 /** @brief 重置所有 12 个控制器的内部状态 */
