@@ -14,6 +14,12 @@
 
 namespace
 {
+/**
+     * @brief 解析参数键中的顺序索引
+     * @param Key 参数键名，例如 `arg0` 或 `p1`
+     * @param OutIndex 输出解析后的索引
+     * @return 解析成功时返回 `true`
+     */
     bool TryParseOrderedKey(const FString& Key, int32& OutIndex)
     {
         FString Work = Key;
@@ -37,6 +43,11 @@ namespace
         return true;
     }
 
+/**
+     * @brief 将 JSON 值重新序列化为字符串
+     * @param Value JSON 值对象
+     * @return 紧凑 JSON 字符串
+     */
     FString SerializeJsonValue(const TSharedPtr<FJsonValue>& Value)
     {
         if (!Value.IsValid())
@@ -50,6 +61,11 @@ namespace
         return Output;
     }
 
+/**
+     * @brief 将 JSON 值转换为反射调用所需的字符串参数
+     * @param Value JSON 值对象
+     * @return 参数字符串
+     */
     FString JsonValueToParamString(const TSharedPtr<FJsonValue>& Value)
     {
         if (!Value.IsValid())
@@ -119,6 +135,11 @@ namespace
         }
     }
 
+/**
+     * @brief 从命令 JSON 中解析无人机任务角色
+     * @param CommandJson 命令 JSON
+     * @return 任务角色枚举
+     */
     EDroneMissionRole ParseMissionRole(const TSharedPtr<FJsonObject>& CommandJson)
     {
         if (!CommandJson.IsValid())
@@ -149,6 +170,12 @@ namespace
         return EDroneMissionRole::Unknown;
     }
 
+/**
+     * @brief 判断生成 Actor 时输入坐标是否按米解释
+     * @param CommandJson 命令 JSON
+     * @param ActorClass 目标类型
+     * @return 使用米制时返回 `true`
+     */
     bool ShouldUseMetersForSpawn(const TSharedPtr<FJsonObject>& CommandJson, UClass* ActorClass)
     {
         if (CommandJson.IsValid())
@@ -172,6 +199,13 @@ namespace
 
         return ActorClass && ActorClass->IsChildOf(ADronePawn::StaticClass());
     }
+/**
+     * @brief 收集并排序 `call_actor` 的参数列表
+     * @param CommandJson 命令 JSON
+     * @param OutParameters 输出参数数组
+     * @param OutError 输出错误信息
+     * @return 参数提取成功时返回 `true`
+     */
     bool CollectCallParameters(const TSharedPtr<FJsonObject>& CommandJson, TArray<FString>& OutParameters, FString& OutError)
     {
         OutParameters.Reset();
@@ -251,11 +285,20 @@ namespace
         return false;
     }
 }
+/**
+ * @brief 构造通用 Actor 命令处理器
+ * @param InGameInstance 游戏实例
+ */
 FCommandHandle::FCommandHandle(UGameInstance* InGameInstance)
     : GameInstance(InGameInstance)
 {
 }
 
+/**
+ * @brief 处理动态生成 Actor 命令
+ * @param CommandJson `add_actor` JSON
+ * @return 执行结果 JSON
+ */
 FString FCommandHandle::HandleAddActor(const TSharedPtr<FJsonObject>& CommandJson)
 {
     if (!CommandJson.IsValid() || !CommandJson->HasField(TEXT("classname")))
@@ -415,6 +458,11 @@ FString FCommandHandle::HandleAddActor(const TSharedPtr<FJsonObject>& CommandJso
     return MakeAddActorResponse(ActorId, true, TEXT("Actor created successfully"));
 }
 
+/**
+ * @brief 处理移除 Actor 命令
+ * @param CommandJson `remove_actor` JSON
+ * @return 执行结果 JSON
+ */
 FString FCommandHandle::HandleRemoveActor(const TSharedPtr<FJsonObject>& CommandJson)
 {
     FString ActorID;
@@ -460,6 +508,11 @@ FString FCommandHandle::HandleRemoveActor(const TSharedPtr<FJsonObject>& Command
     return MakeRemoveActorResponse(true, FString::Printf(TEXT("Actor removed successfully (aliases=%d)"), AliasIds.Num()));
 }
 
+/**
+ * @brief 处理反射调用 Actor 命令
+ * @param CommandJson `call_actor` JSON
+ * @return 执行结果 JSON
+ */
 FString FCommandHandle::HandleCallActor(const TSharedPtr<FJsonObject>& CommandJson)
 {
     FString FunctionName;
@@ -503,6 +556,14 @@ FString FCommandHandle::HandleCallActor(const TSharedPtr<FJsonObject>& CommandJs
     return MakeCallActorResponse(false, FString::Printf(TEXT("Failed to call %s on %s"), *FunctionName, *ActorID), TEXT(""));
 }
 
+/**
+ * @brief 通过 Unreal 反射调用 Actor 成员函数
+ * @param TargetActor 目标 Actor
+ * @param FunctionName 函数名
+ * @param Parameters 字符串化参数数组
+ * @param OutReturnValue 输出返回值
+ * @return 调用成功时返回 `true`
+ */
 bool FCommandHandle::CallActorFunction(AActor* TargetActor, const FString& FunctionName,
                                        const TArray<FString>& Parameters, FString& OutReturnValue)
 {
@@ -573,6 +634,12 @@ bool FCommandHandle::CallActorFunction(AActor* TargetActor, const FString& Funct
     return true;
 }
 
+/**
+ * @brief 将字符串参数写入指定属性内存
+ * @param Property 属性描述
+ * @param Container 参数缓冲区
+ * @param Value 字符串输入值
+ */
 void FCommandHandle::SetPropertyValue(FProperty* Property, void* Container, const FString& Value)
 {
     auto ParseTriple = [](const FString& InValue, const FString& Prefix, float& OutA, float& OutB, float& OutC) -> bool
@@ -695,6 +762,12 @@ void FCommandHandle::SetPropertyValue(FProperty* Property, void* Container, cons
         }
     }
 }
+/**
+ * @brief 将反射属性值转换为字符串
+ * @param Prop 属性描述
+ * @param ValuePtr 属性值内存地址
+ * @return 字符串形式的返回值
+ */
 FString FCommandHandle::ConvertPropertyToString(FProperty* Prop, void* ValuePtr)
 {
     if (FStrProperty* StrProp = CastField<FStrProperty>(Prop))
@@ -716,6 +789,7 @@ FString FCommandHandle::ConvertPropertyToString(FProperty* Prop, void* ValuePtr)
     return TEXT("unsupported_type");
 }
 
+/** @brief 构造 `add_actor` 响应 JSON */
 FString FCommandHandle::MakeAddActorResponse(const FString& ActorID, bool bSuccess, const FString& Message)
 {
     TSharedPtr<FJsonObject> ResponseJson = MakeShareable(new FJsonObject);
@@ -732,6 +806,7 @@ FString FCommandHandle::MakeAddActorResponse(const FString& ActorID, bool bSucce
     return OutputString;
 }
 
+/** @brief 构造 `remove_actor` 响应 JSON */
 FString FCommandHandle::MakeRemoveActorResponse(bool bSuccess, const FString& Message)
 {
     TSharedPtr<FJsonObject> ResponseJson = MakeShareable(new FJsonObject);
@@ -747,6 +822,7 @@ FString FCommandHandle::MakeRemoveActorResponse(bool bSuccess, const FString& Me
     return OutputString;
 }
 
+/** @brief 构造 `call_actor` 响应 JSON */
 FString FCommandHandle::MakeCallActorResponse(bool bSuccess, const FString& Message, const FString& ReturnValue)
 {
     TSharedPtr<FJsonObject> ResponseJson = MakeShareable(new FJsonObject);
@@ -766,6 +842,7 @@ FString FCommandHandle::MakeCallActorResponse(bool bSuccess, const FString& Mess
     return OutputString;
 }
 
+/** @brief 构造通用错误响应 JSON */
 FString FCommandHandle::MakeErrorResponse(const FString& ReturnType, const FString& Message)
 {
     TSharedPtr<FJsonObject> ResponseJson = MakeShareable(new FJsonObject);

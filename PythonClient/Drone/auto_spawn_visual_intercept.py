@@ -1,11 +1,11 @@
-"""Spawn two drones and run visualized auto-intercept.
+"""Spawn two drones and run the visual auto-intercept flow.
 
-This script creates interceptor + target via add_actor, waits for both drones
-to reach takeoff altitude, then keeps the target on a stable position
-trajectory while calling C++ auto_intercept in the same loop. The control flow
-is intentionally serial to avoid response interleaving on the single TCP
-connection.
+This script keeps the task-level orchestration, while TCPClient handles the
+socket transport, AgentDrone wraps drone commands, and GuidanceAgent wraps the
+guidance module.
 """
+
+from __future__ import annotations
 
 import argparse
 import base64
@@ -28,8 +28,7 @@ PYTHONCLIENT_DIR = os.path.dirname(SCRIPT_DIR)
 if PYTHONCLIENT_DIR not in sys.path:
     sys.path.insert(0, PYTHONCLIENT_DIR)
 
-from gradsim import GradSimClient
-
+from gradsim import AgentDrone, GuidanceAgent, TCPClient
 
 BP_DRONE_CLASS = "/Game/Blueprints/BP_Drone.BP_Drone_C"
 WINDOW_NAME = "auto_spawn_visual_intercept"
@@ -50,11 +49,16 @@ class LoopResult:
     last_response: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class RuntimeAgents:
+    client: TCPClient
+    interceptor: AgentDrone
+    target: AgentDrone
+    guidance: GuidanceAgent
+
+
 def _ok(resp: Any) -> bool:
-    if not isinstance(resp, dict):
-        return False
-    status = resp.get("status")
-    return status == "ok" or status is True
+    return AgentDrone.is_ok(resp)
 
 
 def _decode_bgr(data_b64: str):
@@ -68,15 +72,14 @@ def _decode_bgr(data_b64: str):
     return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 
-def _ensure_removed(client: GradSimClient, actor_id: str) -> None:
-    resp = client.remove_actor(actor_id)
-    if _ok(resp):
+def _ensure_removed(client: TCPClient, actor_id: str) -> None:
+    response = AgentDrone.unwrap_response(client.request({"remove_actor": {"actor_id": actor_id}}), "remove_actor_return")
+    if _ok(response):
         print(f"[INFO] removed existing actor: {actor_id}")
 
 
 def _spawn_drone(
-    client: GradSimClient,
-    actor_id: str,
+    drone: AgentDrone,
     classname: str,
     label: str,
     role: str,
@@ -85,62 +88,65 @@ def _spawn_drone(
     z: float,
     yaw: float = 0.0,
 ) -> bool:
-    resp = client.add_actor(
-        classname=classname,
-        expected_id=actor_id,
-        label=label,
-        x=x,
-        y=y,
-        z=z,
+    drone.mission_role = role
+    drone.label = label
+    response = drone.create_raw(
+        spawn_x=x,
+        spawn_y=y,
+        spawn_z=z,
         yaw=yaw,
-        extra={"role": role, "unit": "m"},
+        classname=classname,
+        label=label,
     )
-    if _ok(resp):
+    if _ok(response):
+        drone.classname = classname
+        drone.label = label
+        drone.mission_role = role
         return True
 
     if classname != "DronePawn":
-        print(f"[WARN] spawn with '{classname}' failed: {resp}")
-        resp2 = client.add_actor(
-            classname="DronePawn",
-            expected_id=actor_id,
-            label=label,
-            x=x,
-            y=y,
-            z=z,
+        print(f"[WARN] spawn with '{classname}' failed: {response}")
+        fallback = drone.create_raw(
+            spawn_x=x,
+            spawn_y=y,
+            spawn_z=z,
             yaw=yaw,
-            extra={"role": role, "unit": "m"},
+            classname="DronePawn",
+            label=label,
         )
-        if _ok(resp2):
+        if _ok(fallback):
             print("[WARN] fallback class 'DronePawn' used (may have no visible mesh).")
+            drone.classname = "DronePawn"
+            drone.label = label
+            drone.mission_role = role
             return True
-        print(f"[ERROR] fallback spawn failed: {resp2}")
+        print(f"[ERROR] fallback spawn failed: {fallback}")
         return False
 
-    print(f"[ERROR] spawn failed: {resp}")
+    print(f"[ERROR] spawn failed: {response}")
     return False
 
 
-def _drone_state(client: GradSimClient, drone_id: str) -> Dict[str, Any]:
-    resp = client.drone_state(drone_id=drone_id, frame="ue")
-    return resp if isinstance(resp, dict) else {}
+def _drone_state(drone: AgentDrone) -> Dict[str, Any]:
+    response = drone.get_state(frame="ue")
+    return response if isinstance(response, dict) else {}
 
 
-def _drone_pos(client: GradSimClient, drone_id: str) -> np.ndarray:
-    state = _drone_state(client, drone_id)
+def _drone_pos(drone: AgentDrone) -> np.ndarray:
+    state = _drone_state(drone)
     pos = state.get("position", [0.0, 0.0, 0.0]) if isinstance(state, dict) else [0.0, 0.0, 0.0]
     return np.array(pos[:3], dtype=np.float64)
 
 
 def _wait_for_altitude(
-    client: GradSimClient,
-    drone_id: str,
+    drone: AgentDrone,
     target_altitude: float,
     timeout_s: float = 20.0,
     tolerance_m: float = 0.8,
 ) -> bool:
     deadline = time.time() + max(1.0, timeout_s)
     while time.time() < deadline:
-        state = _drone_state(client, drone_id)
+        state = _drone_state(drone)
         if _ok(state):
             pos = state.get("position", [0.0, 0.0, 0.0])
             if isinstance(pos, list) and len(pos) >= 3:
@@ -227,8 +233,7 @@ def _compute_target_reference(
 
 
 def _send_target_reference(
-    client: GradSimClient,
-    target_id: str,
+    target: AgentDrone,
     elapsed_s: float,
     orbit_center_m: np.ndarray,
     target_altitude_m: float,
@@ -236,7 +241,7 @@ def _send_target_reference(
     target_turn_rate: float,
     target_vertical_amp: float,
 ) -> Tuple[Dict[str, Any], np.ndarray, np.ndarray]:
-    target_pos = _drone_pos(client, target_id)
+    target_pos = _drone_pos(target)
     target_ref, yaw_deg = _compute_target_reference(
         elapsed_s=elapsed_s,
         orbit_center_m=orbit_center_m,
@@ -245,7 +250,7 @@ def _send_target_reference(
         turn_rate_rad_s=target_turn_rate,
         vertical_amp_m=target_vertical_amp,
     )
-    resp = client.drone_move_to(
+    response = target.move_to(
         x=float(target_ref[0]),
         y=float(target_ref[1]),
         z=float(target_ref[2]),
@@ -253,9 +258,8 @@ def _send_target_reference(
         frame="ue",
         yaw_mode={"is_rate": False, "yaw_or_rate": yaw_deg},
         drivetrain="forward_only",
-        drone_id=target_id,
     )
-    return resp, target_pos, target_ref
+    return response, target_pos, target_ref
 
 
 def _draw_overlay(
@@ -330,18 +334,17 @@ def _build_orbit_plan(args: argparse.Namespace) -> OrbitPlan:
     return OrbitPlan(center_m=center, radius_m=radius, omega_rad_s=omega)
 
 
-def _clean_existing_actors(client: GradSimClient, args: argparse.Namespace) -> None:
+def _clean_existing_actors(runtime: RuntimeAgents, args: argparse.Namespace) -> None:
     if not args.clean_existing:
         return
-    _ensure_removed(client, args.interceptor_id)
-    _ensure_removed(client, args.target_id)
+    _ensure_removed(runtime.client, runtime.interceptor.actor_id)
+    _ensure_removed(runtime.client, runtime.target.actor_id)
     time.sleep(0.2)
 
 
-def _spawn_requested_drones(client: GradSimClient, args: argparse.Namespace) -> Tuple[bool, bool]:
+def _spawn_requested_drones(runtime: RuntimeAgents, args: argparse.Namespace) -> Tuple[bool, bool]:
     created_interceptor = _spawn_drone(
-        client=client,
-        actor_id=args.interceptor_id,
+        drone=runtime.interceptor,
         classname=args.drone_class,
         label="Interceptor",
         role="interceptor",
@@ -354,8 +357,7 @@ def _spawn_requested_drones(client: GradSimClient, args: argparse.Namespace) -> 
         return False, False
 
     created_target = _spawn_drone(
-        client=client,
-        actor_id=args.target_id,
+        drone=runtime.target,
         classname=args.drone_class,
         label="Target",
         role="target",
@@ -367,9 +369,9 @@ def _spawn_requested_drones(client: GradSimClient, args: argparse.Namespace) -> 
     return created_interceptor, created_target
 
 
-def _verify_spawned_agents(client: GradSimClient, args: argparse.Namespace) -> bool:
+def _verify_spawned_agents(runtime: RuntimeAgents, args: argparse.Namespace) -> bool:
     time.sleep(0.3)
-    current_ids = set(client.get_agents())
+    current_ids = set(runtime.client.get_agents())
     missing = [actor_id for actor_id in (args.interceptor_id, args.target_id) if actor_id not in current_ids]
     if missing:
         print(f"[ERROR] spawned actors missing in registry: {missing}, current={sorted(current_ids)}")
@@ -378,26 +380,26 @@ def _verify_spawned_agents(client: GradSimClient, args: argparse.Namespace) -> b
     return True
 
 
-def _takeoff_pair(client: GradSimClient, args: argparse.Namespace) -> bool:
+def _takeoff_pair(runtime: RuntimeAgents, args: argparse.Namespace) -> bool:
     print("[INFO] takeoff start")
-    client.drone_takeoff(altitude=args.interceptor_altitude, drone_id=args.interceptor_id)
-    client.drone_takeoff(altitude=args.target_altitude, drone_id=args.target_id)
+    runtime.interceptor.takeoff(altitude=args.interceptor_altitude)
+    runtime.target.takeoff(altitude=args.target_altitude)
 
-    if not _wait_for_altitude(client, args.interceptor_id, args.interceptor_altitude):
+    if not _wait_for_altitude(runtime.interceptor, args.interceptor_altitude):
         print(f"[ERROR] interceptor '{args.interceptor_id}' did not reach takeoff altitude")
         return False
-    if not _wait_for_altitude(client, args.target_id, args.target_altitude):
+    if not _wait_for_altitude(runtime.target, args.target_altitude):
         print(f"[ERROR] target '{args.target_id}' did not reach takeoff altitude")
         return False
 
     print("[INFO] both drones airborne")
-    client.drone_set_camera_angles(0.0, 0.0, drone_id=args.interceptor_id)
-    client.guidance_reset()
+    runtime.interceptor.set_camera_angles(0.0, 0.0)
+    runtime.guidance.reset()
     return True
 
 
 def _run_target_lead_phase(
-    client: GradSimClient,
+    runtime: RuntimeAgents,
     args: argparse.Namespace,
     orbit_plan: OrbitPlan,
     loop_dt: float,
@@ -413,8 +415,7 @@ def _run_target_lead_phase(
             return None
 
         move_resp, target_pos, target_ref = _send_target_reference(
-            client=client,
-            target_id=args.target_id,
+            target=runtime.target,
             elapsed_s=lead_elapsed,
             orbit_center_m=orbit_plan.center_m,
             target_altitude_m=args.target_altitude,
@@ -448,7 +449,7 @@ def _open_visual_window() -> None:
 
 
 def _update_visualization(
-    client: GradSimClient,
+    runtime: RuntimeAgents,
     args: argparse.Namespace,
     guidance_state: Dict[str, Any],
     interceptor_pos: np.ndarray,
@@ -459,7 +460,7 @@ def _update_visualization(
     if not args.show or cv2 is None:
         return None
 
-    image_resp = client.get_image_raw(agent_id=args.interceptor_id, image_type="scene", quality=82)
+    image_resp = runtime.interceptor.get_image_raw(image_type="scene", quality=82)
     if not image_resp or not image_resp.get("data"):
         return None
 
@@ -470,8 +471,8 @@ def _update_visualization(
     vis = _draw_overlay(
         frame=frame,
         image_resp=image_resp,
-        interceptor_id=args.interceptor_id,
-        target_id=args.target_id,
+        interceptor_id=runtime.interceptor.actor_id,
+        target_id=runtime.target.actor_id,
         guidance_state=guidance_state,
         interceptor_pos=interceptor_pos,
         target_pos=target_pos,
@@ -486,7 +487,7 @@ def _update_visualization(
 
 
 def _run_intercept_loop(
-    client: GradSimClient,
+    runtime: RuntimeAgents,
     args: argparse.Namespace,
     orbit_plan: OrbitPlan,
     loop_dt: float,
@@ -506,8 +507,7 @@ def _run_intercept_loop(
             return LoopResult(exit_reason="timeout", last_response=last_resp)
 
         move_resp, target_pos, target_ref = _send_target_reference(
-            client=client,
-            target_id=args.target_id,
+            target=runtime.target,
             elapsed_s=args.target_lead_time + elapsed,
             orbit_center_m=orbit_plan.center_m,
             target_altitude_m=args.target_altitude,
@@ -524,9 +524,9 @@ def _run_intercept_loop(
             continue
         move_error_count = 0
 
-        intercept_resp = client.guidance_auto_intercept(
-            interceptor_id=args.interceptor_id,
-            target_id=args.target_id,
+        intercept_resp = runtime.guidance.auto_intercept(
+            interceptor_id=runtime.interceptor.actor_id,
+            target_id=runtime.target.actor_id,
             method=args.method,
             speed=args.intercept_speed,
             nav_gain=args.nav_gain,
@@ -544,12 +544,12 @@ def _run_intercept_loop(
             continue
         intercept_error_count = 0
 
-        guidance_state = client.guidance_state()
+        guidance_state = runtime.guidance.state()
         if not _ok(guidance_state):
             guidance_state = {}
 
         intercept_state = guidance_state.get("intercept", {}) if isinstance(guidance_state, dict) else {}
-        interceptor_pos = _drone_pos(client, args.interceptor_id)
+        interceptor_pos = _drone_pos(runtime.interceptor)
         distance = float(np.linalg.norm(target_pos - interceptor_pos))
         captured = bool(intercept_resp.get("captured", False)) or bool(intercept_state.get("captured", False))
 
@@ -570,7 +570,7 @@ def _run_intercept_loop(
             capture_reason = "captured"
 
         vis_exit = _update_visualization(
-            client=client,
+            runtime=runtime,
             args=args,
             guidance_state=guidance_state,
             interceptor_pos=interceptor_pos,
@@ -589,20 +589,20 @@ def _run_intercept_loop(
 
 
 def _cleanup_runtime(
-    client: GradSimClient,
+    runtime: RuntimeAgents,
     args: argparse.Namespace,
     created_interceptor: bool,
     created_target: bool,
     exit_reason: str,
 ) -> None:
-    for created, drone_id in (
-        (created_target, args.target_id),
-        (created_interceptor, args.interceptor_id),
+    for created, drone in (
+        (created_target, runtime.target),
+        (created_interceptor, runtime.interceptor),
     ):
         if not created:
             continue
         try:
-            client.drone_hover(drone_id=drone_id)
+            drone.hover()
         except Exception:
             pass
 
@@ -617,16 +617,16 @@ def _cleanup_runtime(
     if should_cleanup:
         if created_target:
             try:
-                print("[INFO] remove target:", client.remove_actor(args.target_id))
+                print("[INFO] remove target:", runtime.target.remove_raw())
             except Exception:
                 pass
         if created_interceptor:
             try:
-                print("[INFO] remove interceptor:", client.remove_actor(args.interceptor_id))
+                print("[INFO] remove interceptor:", runtime.interceptor.remove_raw())
             except Exception:
                 pass
 
-    client.close()
+    runtime.client.close()
 
 
 def build_argparser() -> argparse.ArgumentParser:
@@ -684,20 +684,39 @@ def main() -> None:
         print("[WARN] opencv-python not installed, visualization disabled.")
         args.show = False
 
-    client = GradSimClient(ip=args.host, port=args.port, timeout=args.timeout)
-    if not _ok(client.ping()):
+    client = TCPClient(host=args.host, port=args.port, timeout=args.timeout, auto_connect=False)
+    if not client.connect() or not _ok(client.ping()):
         print("[ERROR] cannot connect to simulator")
         client.close()
         return
+
+    runtime = RuntimeAgents(
+        client=client,
+        interceptor=AgentDrone(
+            client,
+            args.interceptor_id,
+            classname=args.drone_class,
+            label="Interceptor",
+            mission_role="interceptor",
+        ),
+        target=AgentDrone(
+            client,
+            args.target_id,
+            classname=args.drone_class,
+            label="Target",
+            mission_role="target",
+        ),
+        guidance=GuidanceAgent(client),
+    )
 
     created_interceptor = False
     created_target = False
     exit_reason = "finished"
 
     try:
-        _clean_existing_actors(client, args)
+        _clean_existing_actors(runtime, args)
 
-        created_interceptor, created_target = _spawn_requested_drones(client, args)
+        created_interceptor, created_target = _spawn_requested_drones(runtime, args)
         if not created_interceptor:
             exit_reason = "error: interceptor spawn failed"
             return
@@ -705,11 +724,11 @@ def main() -> None:
             exit_reason = "error: target spawn failed"
             return
 
-        if not _verify_spawned_agents(client, args):
+        if not _verify_spawned_agents(runtime, args):
             exit_reason = "error: spawned actors missing in registry"
             return
 
-        if not _takeoff_pair(client, args):
+        if not _takeoff_pair(runtime, args):
             exit_reason = "error: takeoff or altitude wait failed"
             return
 
@@ -721,7 +740,7 @@ def main() -> None:
             f"omega={orbit_plan.omega_rad_s:.2f}rad/s"
         )
 
-        lead_error = _run_target_lead_phase(client, args, orbit_plan, loop_dt)
+        lead_error = _run_target_lead_phase(runtime, args, orbit_plan, loop_dt)
         if lead_error is not None:
             exit_reason = lead_error
             return
@@ -729,14 +748,14 @@ def main() -> None:
         if args.show:
             _open_visual_window()
 
-        result = _run_intercept_loop(client, args, orbit_plan, loop_dt)
+        result = _run_intercept_loop(runtime, args, orbit_plan, loop_dt)
         exit_reason = result.exit_reason
         print("[RESULT]", result.last_response)
         print(f"[INFO] exit reason: {exit_reason}")
 
     finally:
         _cleanup_runtime(
-            client=client,
+            runtime=runtime,
             args=args,
             created_interceptor=created_interceptor,
             created_target=created_target,
@@ -746,3 +765,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

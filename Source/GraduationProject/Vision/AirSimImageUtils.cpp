@@ -860,6 +860,12 @@ namespace
     }
 }
 
+/**
+ * @brief 解析图像类型输入
+ * @param RawType 外部传入的类型字符串或数值字符串
+ * @param OutType 输出图像类型
+ * @return 识别成功时返回 `true`
+ */
 bool AirSimImageUtils::TryParseImageType(const FString& RawType, EImageType& OutType)
 {
     FString Normalized = RawType;
@@ -899,6 +905,7 @@ bool AirSimImageUtils::TryParseImageType(const FString& RawType, EImageType& Out
     return false;
 }
 
+/** @brief 将图像类型转换为协议标准字符串 */
 FString AirSimImageUtils::ToCanonicalString(EImageType Type)
 {
     switch (Type)
@@ -912,6 +919,7 @@ FString AirSimImageUtils::ToCanonicalString(EImageType Type)
     }
 }
 
+/** @brief 将图像类型转换为 UI 显示名称 */
 FString AirSimImageUtils::ToDisplayString(EImageType Type)
 {
     switch (Type)
@@ -925,6 +933,7 @@ FString AirSimImageUtils::ToDisplayString(EImageType Type)
     }
 }
 
+/** @brief 返回当前支持的全部 AirSim 图像类型 */
 TArray<AirSimImageUtils::EImageType> AirSimImageUtils::SupportedImageTypes()
 {
     return {
@@ -936,6 +945,11 @@ TArray<AirSimImageUtils::EImageType> AirSimImageUtils::SupportedImageTypes()
     };
 }
 
+/**
+ * @brief 捕获指定类型的原始像素
+ * @return 捕获成功时返回 `true`
+ * 该函数统一处理 Scene、深度、分割和红外等多种图像模式。
+ */
 bool AirSimImageUtils::CapturePixels(
     USceneCaptureComponent2D* Capture,
     int32 Width,
@@ -1033,6 +1047,10 @@ bool AirSimImageUtils::CapturePixels(
     return false;
 }
 
+/**
+ * @brief 捕获指定类型图像并编码为 Base64 JPEG
+ * @return Base64 图像字符串；失败时返回空串
+ */
 FString AirSimImageUtils::CaptureJpegBase64(
     USceneCaptureComponent2D* Capture,
     int32 Width,

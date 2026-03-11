@@ -5,13 +5,13 @@
 #include "IImageWrapperModule.h"
 #include "IImageWrapper.h"
 
-/** @brief 构造函数 */
+/** @brief 构造图像采集组件 */
 UImageCapture::UImageCapture()
 {
     PrimaryComponentTick.bCanEverTick = false;
 }
 
-/** @brief 游戏开始时调用，初始化采集组件 */
+/** @brief 在游戏开始时初始化图像采集组件 */
 void UImageCapture::BeginPlay()
 {
     Super::BeginPlay();
@@ -19,8 +19,8 @@ void UImageCapture::BeginPlay()
 }
 
 /**
- * @brief 创建并配置 SceneCaptureComponent2D 和 RenderTarget
- * 创建 RenderTarget 画布，创建 SceneCaptureComponent2D 并附着到 Owner 根组件，
+ * @brief 创建并配置采集组件与 RenderTarget
+ * 创建专用 `RenderTarget`，并把 `SceneCaptureComponent2D` 挂到拥有者根节点上。
  */
 void UImageCapture::SetupCapture()
 {
@@ -47,7 +47,7 @@ void UImageCapture::SetupCapture()
 /**
  * @brief 采集一帧图像并编码为 JPEG
  * @param Quality JPEG 压缩质量
- * @return JPEG 编码后的字节数组
+ * @return JPEG 字节数组
  */
 TArray<uint8> UImageCapture::CaptureJpeg(int32 Quality)
 {
@@ -80,9 +80,9 @@ TArray<uint8> UImageCapture::CaptureJpeg(int32 Quality)
 }
 
 /**
- * @brief 采集一帧图像并返回 Base64 编码字符串
+ * @brief 采集一帧图像并返回 Base64 编码结果
  * @param Quality JPEG 压缩质量
- * @return Base64 编码的 JPEG 字符串
+ * @return Base64 编码后的 JPEG 字符串
  */
 FString UImageCapture::CaptureBase64(int32 Quality)
 {

@@ -26,6 +26,11 @@
 
 namespace
 {
+/**
+     * @brief 将无人机任务角色转换为协议字符串
+     * @param Role 任务角色枚举
+     * @return `target`、`interceptor` 或 `unknown`
+     */
     FString DroneRoleToString(EDroneMissionRole Role)
     {
         switch (Role)
@@ -37,6 +42,11 @@ namespace
         }
     }
 
+/**
+     * @brief 转义 JSON 字符串中的特殊字符
+     * @param In 原始字符串
+     * @return 转义后的字符串
+     */
     FString JsonEscape(const FString& In)
     {
         FString Out = In;
@@ -45,6 +55,15 @@ namespace
         return Out;
     }
 
+/**
+     * @brief 将深度缓冲编码为灰度 JPEG Base64
+     * @param DepthPixels 线性深度像素
+     * @param Width 图像宽度
+     * @param Height 图像高度
+     * @param Quality JPEG 质量
+     * @param MaxDepthMeters 深度显示上限（米）
+     * @return Base64 字符串；失败时返回空串
+     */
     FString EncodeDepthGrayJpegBase64(const TArray<FLinearColor>& DepthPixels, int32 Width, int32 Height, int32 Quality, float MaxDepthMeters)
     {
         if (DepthPixels.Num() != Width * Height)
@@ -81,6 +100,15 @@ namespace
         return FBase64::Encode(JpegData.GetData(), JpegData.Num());
     }
 
+/**
+     * @brief 临时切换 SceneCapture 到深度模式并抓取图像
+     * @param Capture 场景捕获组件
+     * @param Width 输出宽度
+     * @param Height 输出高度
+     * @param Quality JPEG 质量
+     * @param MaxDepthMeters 深度显示上限（米）
+     * @return Base64 编码深度图
+     */
     FString CaptureDepthBase64(USceneCaptureComponent2D* Capture, int32 Width, int32 Height, int32 Quality, float MaxDepthMeters)
     {
         if (!Capture || Width <= 0 || Height <= 0)
@@ -120,6 +148,13 @@ namespace
     }
 }
 
+/**
+ * @brief 路由并执行一条外部 JSON 命令
+ * @param JsonString 原始请求 JSON
+ * @param World 当前场景 World
+ * @return 命令执行结果 JSON
+ * 根据顶层字段依次分发到仿真控制、Agent 控制、录制、图像和传感器接口。
+ */
 FString UCommandRouter::HandleCommand(const FString& JsonString, UWorld* World)
 {
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
@@ -245,11 +280,17 @@ FString UCommandRouter::HandleCommand(const FString& JsonString, UWorld* World)
     return MakeErrorResponse(TEXT("Unknown command"));
 }
 
+/** @brief 处理连通性检测命令，返回固定 `pong` 响应 */
 FString UCommandRouter::HandlePing()
 {
     return TEXT("{\"status\":\"ok\",\"message\":\"pong\"}");
 }
 
+/**
+ * @brief 暂停仿真
+ * @param World 当前场景 World
+ * @return JSON 响应
+ */
 FString UCommandRouter::HandleSimPause(UWorld* World)
 {
     if (!World)
@@ -267,6 +308,11 @@ FString UCommandRouter::HandleSimPause(UWorld* World)
     return MakeOkResponse(TEXT("simulation paused"));
 }
 
+/**
+ * @brief 恢复仿真
+ * @param World 当前场景 World
+ * @return JSON 响应
+ */
 FString UCommandRouter::HandleSimResume(UWorld* World)
 {
     if (!World)
@@ -284,6 +330,11 @@ FString UCommandRouter::HandleSimResume(UWorld* World)
     return MakeOkResponse(TEXT("simulation resumed"));
 }
 
+/**
+ * @brief 重置仿真场景
+ * @param World 当前场景 World
+ * @return JSON 响应
+ */
 FString UCommandRouter::HandleSimReset(UWorld* World)
 {
     if (!World)
@@ -301,6 +352,11 @@ FString UCommandRouter::HandleSimReset(UWorld* World)
     return MakeOkResponse(TEXT("simulation reset"));
 }
 
+/**
+ * @brief 查询当前仿真时间、墙钟时间和时间倍率
+ * @param World 当前场景 World
+ * @return 时间相关 JSON
+ */
 FString UCommandRouter::HandleSimGetTime(UWorld* World)
 {
     if (!World)
@@ -320,6 +376,12 @@ FString UCommandRouter::HandleSimGetTime(UWorld* World)
         Clock->GetTimeScale());
 }
 
+/**
+ * @brief 设置仿真时间倍率
+ * @param JsonObject 请求 JSON
+ * @param World 当前场景 World
+ * @return JSON 响应
+ */
 FString UCommandRouter::HandleSimSetTimeScale(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World)
 {
     if (!World)
@@ -345,6 +407,12 @@ FString UCommandRouter::HandleSimSetTimeScale(const TSharedPtr<FJsonObject>& Jso
     return MakeOkResponse(FString::Printf(TEXT("time_scale=%.3f"), USimClockService::GetInstance()->GetTimeScale()));
 }
 
+/**
+ * @brief 按给定步数和步长推进仿真
+ * @param JsonObject 请求 JSON
+ * @param World 当前场景 World
+ * @return 推进结果 JSON
+ */
 FString UCommandRouter::HandleSimStep(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World)
 {
     if (!World)
@@ -390,6 +458,10 @@ FString UCommandRouter::HandleSimStep(const TSharedPtr<FJsonObject>& JsonObject,
         Clock->GetWallTimeSec(),
         Clock->GetTimeScale());
 }
+/**
+ * @brief 获取当前已注册智能体清单
+ * @return 包含 ID、类型和角色的 JSON 数组
+ */
 FString UCommandRouter::HandleGetAgentList()
 {
     UAgentManager* Manager = UAgentManager::GetInstance();
@@ -429,6 +501,11 @@ FString UCommandRouter::HandleGetAgentList()
     return FString::Printf(TEXT("{\"status\":\"ok\",\"agents\":%s,\"agents_detail\":%s,\"count\":%d}"), *AgentIdsJson, *AgentDetailJson, Ids.Num());
 }
 
+/**
+ * @brief 查询异步命令执行状态
+ * @param JsonObject 请求 JSON
+ * @return 命令状态 JSON
+ */
 FString UCommandRouter::HandleGetCommandStatus(const TSharedPtr<FJsonObject>& JsonObject)
 {
     const TSharedPtr<FJsonObject>* Obj = nullptr;
@@ -469,6 +546,11 @@ FString UCommandRouter::HandleGetCommandStatus(const TSharedPtr<FJsonObject>& Js
         Duration);
 }
 
+/**
+ * @brief 取消异步命令
+ * @param JsonObject 请求 JSON
+ * @return JSON 响应
+ */
 FString UCommandRouter::HandleCancelCommand(const TSharedPtr<FJsonObject>& JsonObject)
 {
     const TSharedPtr<FJsonObject>* Obj = nullptr;
@@ -493,6 +575,12 @@ FString UCommandRouter::HandleCancelCommand(const TSharedPtr<FJsonObject>& JsonO
 
     return MakeOkResponse(FString::Printf(TEXT("command '%s' canceled"), *CommandId));
 }
+/**
+ * @brief 获取无人机传感器数据
+ * @param JsonObject 请求 JSON
+ * @param World 当前场景 World
+ * @return 传感器 JSON
+ */
 FString UCommandRouter::HandleGetSensorData(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World)
 {
     const TSharedPtr<FJsonObject>* Obj = nullptr;
@@ -510,6 +598,11 @@ FString UCommandRouter::HandleGetSensorData(const TSharedPtr<FJsonObject>& JsonO
     return USensorManager::GetInstance()->BuildDroneSensorJson(DroneId, World, Frame);
 }
 
+/**
+ * @brief 启动仿真录制器
+ * @param JsonObject 请求 JSON
+ * @return JSON 响应
+ */
 FString UCommandRouter::HandleRecorderStart(const TSharedPtr<FJsonObject>& JsonObject)
 {
     const TSharedPtr<FJsonObject>* Obj = nullptr;
@@ -529,12 +622,14 @@ FString UCommandRouter::HandleRecorderStart(const TSharedPtr<FJsonObject>& JsonO
     return FString::Printf(TEXT("{\"status\":\"ok\",\"path\":\"%s\"}"), *USimulationRecorder::GetInstance()->GetPath().ReplaceCharWithEscapedChar());
 }
 
+/** @brief 停止仿真录制器 */
 FString UCommandRouter::HandleRecorderStop()
 {
     USimulationRecorder::GetInstance()->Stop();
     return MakeOkResponse(TEXT("recorder stopped"));
 }
 
+/** @brief 查询录制器状态 */
 FString UCommandRouter::HandleRecorderStatus()
 {
     USimulationRecorder* Recorder = USimulationRecorder::GetInstance();
@@ -545,6 +640,11 @@ FString UCommandRouter::HandleRecorderStatus()
         Recorder->GetRecordCount());
 }
 
+/**
+ * @brief 主动记录当前场景状态快照
+ * @param World 当前场景 World
+ * @return JSON 响应
+ */
 FString UCommandRouter::HandleRecorderRecordState(UWorld* World)
 {
     if (!World)
@@ -592,16 +692,32 @@ FString UCommandRouter::HandleRecorderRecordState(UWorld* World)
     Recorder->RecordJsonLine(TEXT("state"), Payload);
     return MakeOkResponse(TEXT("state recorded"));
 }
+/**
+ * @brief 构造统一错误响应
+ * @param Error 错误信息
+ * @return 错误 JSON 字符串
+ */
 FString UCommandRouter::MakeErrorResponse(const FString& Error)
 {
     return FString::Printf(TEXT("{\"status\":\"error\",\"message\":\"%s\"}"), *JsonEscape(Error));
 }
 
+/**
+ * @brief 构造统一成功响应
+ * @param Message 成功说明
+ * @return 成功 JSON 字符串
+ */
 FString UCommandRouter::MakeOkResponse(const FString& Message)
 {
     return FString::Printf(TEXT("{\"status\":\"ok\",\"message\":\"%s\"}"), *JsonEscape(Message));
 }
 
+/**
+ * @brief 获取指定 Agent 的图像输出
+ * @param JsonObject 请求 JSON
+ * @param World 当前场景 World
+ * @return 包含图像 Base64 和相机元数据的 JSON
+ */
 FString UCommandRouter::HandleGetImage(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World)
 {
     if (!World)

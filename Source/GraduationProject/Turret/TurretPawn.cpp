@@ -21,11 +21,8 @@
 #include "HAL/IConsoleManager.h"
 
 /**
- * @brief 鏋勯€犲嚱鏁?
- * 鍒涘缓杞彴缃戞牸灞傜骇
- * 璁剧疆榛樿寮逛父绫讳负 ABulletActor
- * 鍒涘缓 UTurretAiming 鐬勫噯缁勪欢
- * 鍒涘缓 SceneCaptureComponent2D 鍜?CineCameraComponent 骞堕檮鐫€鍒版灙绠?
+ * @brief 构造炮台 Pawn
+ * 创建炮台层级、瞄准组件和相机采集组件。
  */
 ATurretPawn::ATurretPawn()
 {
@@ -48,7 +45,10 @@ ATurretPawn::ATurretPawn()
     TurretCineCamera->SetActive(false);
 }
 
-/** @brief 鍒涘缓 RenderTarget2D 鐢诲竷锛屾姇灏勫埌 TurretSceneCapture */
+/**
+ * @brief 初始化炮台运行时资源
+ * 创建 `RenderTarget`、注册到 `AgentManager`，并初始化相机分割设置。
+ */
 void ATurretPawn::BeginPlay()
 {
     Super::BeginPlay();
@@ -66,9 +66,9 @@ void ATurretPawn::BeginPlay()
 }
 
 /**
- * @param DeltaTime 甯ч棿闅旀椂闂达紙绉掞級
- *  鍚屾 CineCamera PP 鍒?SceneCapture
- *  GimbalMesh銆丟unMesh 鏃嬭浆
+ * @brief 每帧更新炮台姿态
+ * @param DeltaTime 帧间隔（秒）
+ * 同步后处理设置，并插值更新云台和枪管角度；若开启调试则绘制预测轨迹。
  */
 void ATurretPawn::Tick(float DeltaTime)
 {
@@ -83,11 +83,10 @@ void ATurretPawn::Tick(float DeltaTime)
     if (bShowPredictionLine) DrawPredictionLine();
 }
 
-
 /**
- * @brief 璁剧疆杞彴鐩爣瑙掑害
- * @param NewTargetPitch 鐩爣淇话瑙?
- * @param NewTargetYaw 鐩爣鍋忚埅瑙?
+ * @brief 设置炮台目标角度
+ * @param NewTargetPitch 目标俯仰角（度）
+ * @param NewTargetYaw 目标偏航角（度）
  */
 void ATurretPawn::SetTargetAngles(float NewTargetPitch, float NewTargetYaw)
 {
@@ -96,23 +95,23 @@ void ATurretPawn::SetTargetAngles(float NewTargetPitch, float NewTargetYaw)
 }
 
 /**
- * @brief 閫氳繃 Agent ID 寮€濮嬭嚜鍔ㄨ窡韪洰鏍?
- * @param TargetActorID 鐩爣 Agent ID
+ * @brief 开始跟踪目标 Agent
+ * @param TargetActorID 目标 Agent ID
  */
 void ATurretPawn::StartTracking(const FString& TargetActorID)
 {
     if (AimingComponent) AimingComponent->StartTracking(TargetActorID);
 }
 
-/** @brief 鍋滄鑷姩璺熻釜 */
+/** @brief 停止自动跟踪 */
 void ATurretPawn::StopTracking()
 {
     if (AimingComponent) AimingComponent->StopTracking();
 }
 
 /**
- * @brief 鏌ヨ鏄惁姝ｅ湪璺熻釜鐩爣
- * @return true 琛ㄧず姝ｅ湪璺熻釜
+ * @brief 查询当前是否正在跟踪目标
+ * @return 正在跟踪时返回 `true`
  */
 bool ATurretPawn::IsTracking() const
 {
@@ -120,9 +119,9 @@ bool ATurretPawn::IsTracking() const
 }
 
 /**
- * @brief 鍙戝皠寮逛父
- * @param InitialSpeed 寮逛父鍒濆閫熷害
- * 鐢熸垚 ABulletActor 骞朵紶鍏ヨ建杩?
+ * @brief 发射弹丸
+ * @param InitialSpeed 弹丸初速度（m/s）
+ * 先根据当前枪管姿态计算弹道，再生成 `ABulletActor` 沿轨迹运动。
  */
 void ATurretPawn::FireX(float InitialSpeed)
 {
@@ -145,67 +144,65 @@ void ATurretPawn::FireX(float InitialSpeed)
     }
 }
 
-
 /**
- * @brief 浣跨敤 BC 寮归亾搴撹绠楀脊閬撹建杩?
- * @param StartPos 鍙戝皠璧风偣
- * @param ShootDir 鍙戝皠鏂瑰悜
- * @param InitialSpeed 鍒濆閫熷害
- * @param OutTotalTime 寮归亾鎬婚琛屾椂闂?
- * @return 寮归亾杞ㄨ抗鐐规暟缁?
- * 寮硅嵂鍙傛暟锛欱C=0.295锛屽脊閲?5g锛屽脊寰?3.8mm
- * 闃诲姏琛細G7
- * 澶ф皵锛欼CAO 鏍囧噯澶ф皵锛屾俯搴?15掳C
- * 鏈€澶у皠绋嬶細500m锛屾椂闂存闀?0.01s
+ * @brief 使用 BC 弹道库计算轨迹点
+ * @param StartPos 发射起点
+ * @param ShootDir 发射方向
+ * @param InitialSpeed 初速度（m/s）
+ * @param OutTotalTime 输出总飞行时间
+ * @return 轨迹点数组
+ * 当前配置使用 G7 阻力模型、5g 弹丸、3.8mm 口径，并按 0.01s 步长积分到 500m。
  */
 TArray<FVector> ATurretPawn::Ballistic(FVector StartPos, FRotator ShootDir, float InitialSpeed, float& OutTotalTime)
 {
     TArray<FVector> ResultPath;
     OutTotalTime = 0.0f;
-    std::vector<DragDataPoint> dragTable;   // 闃诲姏琛?
-    try {dragTable = DragTables::getTable("G7");}
-    catch (...) {dragTable = DragTables::getTable("G1");}
-    double bc_value = 0.295;    // 寮逛父寮归亾绯绘暟
-    Weight bulletWeight = Weight::Grams(5.0);  // 寮逛父閲嶉噺
-    Distance bulletDiameter = Distance::Millimeters(3.8);  // 寮逛父鐩村緞
-    Distance bulletLength = Distance::Millimeters(3.8);  // 寮逛父闀垮害
-    DragModel dragModel(bc_value, dragTable, bulletWeight, bulletDiameter, bulletLength);   //// 瀛愬脊闃诲姏妯″瀷
-    Velocity muzzleVel = Velocity::MPS(InitialSpeed);  // 寮逛父鍒濋€熷害
-    Temperature powderTemp = Temperature::Celsius(15.0);    // 寮硅嵂娓╁害
-    Ammunition ammo(dragModel, muzzleVel, powderTemp, 0.0, true);   //// 寮硅嵂鍙傛暟
-    Distance altitude = Distance::Meters(StartPos.Z / 100.0);  // 娴锋嫈楂樺害
-    Atmosphere atmo = Atmosphere::ICAO(altitude, Temperature::Celsius(15), 0.0);  //// 澶ф皵妯″瀷
-    Distance sightHeight = Distance::Centimeters(0.0);  // 鐬勫噯闀滈珮搴?
-    Distance twist = Distance::Inches(0.0);  // 鑶涚嚎缂犺窛
-    Weapon weapon(sightHeight, twist, Angular::Degrees(0));  //// 姝﹀櫒鍙傛暟
-    Velocity windSpeed = Velocity::MPS(0.0);  // 椋庨€?
-    Angular windDir = Angular::Degrees(0.0);  // 椋庡悜
-    Wind wind1(windSpeed, windDir);     //// 椋?
-    std::vector<Wind> winds = { wind1 };    
-    Angular lookAngle = Angular::Degrees(0);  // 鐬勫噯鏂瑰悜
-    double azimuth = 0;  // 鏂逛綅瑙?
-    double latitude = 0.0;  // 绾害
-    Angular cantAngle = Angular::Degrees(0);  // 鏋彛鍊捐
-    Shot shot(ammo, atmo, weapon, winds, lookAngle, Angular::Degrees(0), cantAngle, azimuth, latitude);     //// 鍏ㄩ儴鍙傛暟
+
+    std::vector<DragDataPoint> dragTable;
+    try { dragTable = DragTables::getTable("G7"); }
+    catch (...) { dragTable = DragTables::getTable("G1"); }
+
+    double bc_value = 0.295;
+    Weight bulletWeight = Weight::Grams(5.0);
+    Distance bulletDiameter = Distance::Millimeters(3.8);
+    Distance bulletLength = Distance::Millimeters(3.8);
+    DragModel dragModel(bc_value, dragTable, bulletWeight, bulletDiameter, bulletLength);
+    Velocity muzzleVel = Velocity::MPS(InitialSpeed);
+    Temperature powderTemp = Temperature::Celsius(15.0);
+    Ammunition ammo(dragModel, muzzleVel, powderTemp, 0.0, true);
+    Distance altitude = Distance::Meters(StartPos.Z / 100.0);
+    Atmosphere atmo = Atmosphere::ICAO(altitude, Temperature::Celsius(15), 0.0);
+    Distance sightHeight = Distance::Centimeters(0.0);
+    Distance twist = Distance::Inches(0.0);
+    Weapon weapon(sightHeight, twist, Angular::Degrees(0));
+    Velocity windSpeed = Velocity::MPS(0.0);
+    Angular windDir = Angular::Degrees(0.0);
+    Wind wind1(windSpeed, windDir);
+    std::vector<Wind> winds = { wind1 };
+    Angular lookAngle = Angular::Degrees(0);
+    double azimuth = 0;
+    double latitude = 0.0;
+    Angular cantAngle = Angular::Degrees(0);
+    Shot shot(ammo, atmo, weapon, winds, lookAngle, Angular::Degrees(0), cantAngle, azimuth, latitude);
     Calculator calculator;
-    double time_step = 0.01;    // 鏃堕棿姝ラ暱
-    double max_dist = 500.0;    // 鏈€澶у皠绋?
+    double time_step = 0.01;
+    double max_dist = 500.0;
     std::vector<TrajectoryPoint> vT = calculator.fire(shot, Distance::Meters(max_dist), Distance::Meters(0), time_step);
     if (!vT.empty()) OutTotalTime = vT.back().time;
-    FTransform GunTransform(ShootDir, StartPos);    
+
+    FTransform GunTransform(ShootDir, StartPos);
     for (const auto& Pt : vT)
     {
-        double RelX_m = Pt.distance.Meters();    // 鍓嶆柟璺濈
-        double RelZ_m = Pt.height.Meters();      // 寮归亾楂樺害锛堝惈閲嶅姏涓嬮檷锛?
-        double RelY_m = Pt.windage.Meters();     // 妯悜鍋忕Щ锛堥鍋忥級
+        double RelX_m = Pt.distance.Meters();
+        double RelZ_m = Pt.height.Meters();
+        double RelY_m = Pt.windage.Meters();
         FVector LocalPos(RelX_m * 100.0, RelY_m * 100.0, RelZ_m * 100.0);
         ResultPath.Add(GunTransform.TransformPosition(LocalPos));
     }
     return ResultPath;
 }
 
-
-/** @brief 鍒涘缓杞彴缃戞牸缁勪欢 */
+/** @brief 创建底座、云台和枪管网格组件 */
 void ATurretPawn::SetupTurretMesh()
 {
     CollisionComponent = CreateDefaultSubobject<USphereComponent>(TEXT("RootCollision"));
@@ -220,21 +217,24 @@ void ATurretPawn::SetupTurretMesh()
     GunMesh->SetupAttachment(GimbalMesh);
 }
 
-/** @brief 鍚敤棰勬祴寮归亾绾挎樉绀?*/
+/** @brief 开启预测弹道线显示 */
 void ATurretPawn::ShowPredictionLine()
 {
     bShowPredictionLine = true;
     UE_LOG(LogTemp, Log, TEXT("[Turret] PredictionLine enabled"));
 }
 
-/** @brief 绂佺敤棰勬祴寮归亾绾挎樉绀?*/
+/** @brief 关闭预测弹道线显示 */
 void ATurretPawn::HidePredictionLine()
 {
     bShowPredictionLine = false;
     UE_LOG(LogTemp, Log, TEXT("[Turret] PredictionLine disabled"));
 }
 
-/** @brief 缁樺埗棰勬祴寮归亾绾垮拰鍛戒腑鐐?*/
+/**
+ * @brief 绘制预测弹道线和命中点
+ * 使用默认弹丸初速度进行一条调试弹道预览，并对首个命中点绘制球标记。
+ */
 void ATurretPawn::DrawPredictionLine()
 {
     if (!GunMesh || !GetWorld()) return;
@@ -246,7 +246,7 @@ void ATurretPawn::DrawPredictionLine()
     float TrajectoryDuration = 0.0f;
     TArray<FVector> PathPoints = Ballistic(MuzzleLocation, MuzzleRotation, DefaultMuzzleSpeed, TrajectoryDuration);
     if (PathPoints.Num() < 2) return;
-    for (int32 i = 0; i < PathPoints.Num() - 1; ++i)  
+    for (int32 i = 0; i < PathPoints.Num() - 1; ++i)
     {
         DrawDebugLine(GetWorld(), PathPoints[i], PathPoints[i + 1], PredictionLineColor, false, -1.0f, 0, PredictionLineThickness);
     }
@@ -264,14 +264,9 @@ void ATurretPawn::DrawPredictionLine()
 }
 
 /**
- * @brief 閲囬泦涓€甯у浘鍍忓苟杩斿洖 Base64 缂栫爜鐨?JPEG 瀛楃涓?
- * @param Quality JPEG 鍘嬬缉璐ㄩ噺
- * @return Base64 缂栫爜鐨?JPEG 鏁版嵁
- * 鎵嬪姩瑙﹀彂 SceneCapture 閲囬泦涓€甯?
- * 浠?RenderTarget 璇诲彇鍍忕礌鏁版嵁
- * 杞崲涓?BGRA 鍘熷瀛楄妭鏁扮粍
- * 浣跨敤 IImageWrapper 缂栫爜涓?JPEG
- * Base64 缂栫爜鍚庤繑鍥?
+ * @brief 捕获当前炮台相机画面并返回 Base64 JPEG
+ * @param Quality JPEG 压缩质量；小于等于 0 时使用 `JpegQuality`
+ * @return Base64 编码后的 JPEG 图像数据
  */
 FString ATurretPawn::CaptureImageBase64(int32 Quality)
 {
@@ -283,7 +278,7 @@ FString ATurretPawn::CaptureImageBase64(int32 Quality)
     return CameraCaptureUtils::CaptureColorJpegBase64(TurretSceneCapture, CameraWidth, CameraHeight, Quality);
 }
 
-/** @brief 灏?CineCamera 鐨?PostProcess 璁剧疆鍚屾鍒?SceneCapture */
+/** @brief 将可见网格写入 CustomDepth/Stencil，供分割图像使用 */
 void ATurretPawn::ApplySegmentationStencil()
 {
     IConsoleVariable* CustomDepthVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.CustomDepth"));
@@ -308,6 +303,10 @@ void ATurretPawn::ApplySegmentationStencil()
     }
 }
 
+/**
+ * @brief 将 CineCamera 的后处理设置同步给 SceneCapture
+ * 自动叠加曝光补偿，保证导出图像与场景观察更一致。
+ */
 void ATurretPawn::SyncPostProcessToCapture()
 {
     if (!TurretCineCamera || !TurretSceneCapture) return;
@@ -319,6 +318,3 @@ void ATurretPawn::SyncPostProcessToCapture()
     TurretSceneCapture->PostProcessSettings.bOverride_AutoExposureBias = true;
     TurretSceneCapture->PostProcessSettings.AutoExposureBias += ExposureBias;
 }
-
-
-

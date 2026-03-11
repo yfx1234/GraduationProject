@@ -9,6 +9,15 @@
 
 namespace
 {
+    /**
+     * @brief 将 BGRA 像素编码为 Base64 JPEG
+     * @param Pixels 输入像素数组
+     * @param Width 图像宽度
+     * @param Height 图像高度
+     * @param Quality JPEG 压缩质量
+     * @param OutBase64 输出 Base64 字符串
+     * @return 编码成功时返回 `true`
+     */
     bool EncodeBgraToJpegBase64(const TArray<FColor>& Pixels, int32 Width, int32 Height, int32 Quality, FString& OutBase64)
     {
         if (Pixels.Num() != Width * Height)
@@ -44,6 +53,15 @@ namespace
     }
 }
 
+/**
+ * @brief 捕获彩色场景图并编码为 Base64 JPEG
+ * @param Capture 场景捕获组件
+ * @param Width 输出宽度
+ * @param Height 输出高度
+ * @param Quality JPEG 压缩质量
+ * @return Base64 编码后的 JPEG 字符串
+ * 若捕获组件或 RenderTarget 无效，则直接返回空串。
+ */
 FString CameraCaptureUtils::CaptureColorJpegBase64(USceneCaptureComponent2D* Capture, int32 Width, int32 Height, int32 Quality)
 {
     if (!Capture || !Capture->TextureTarget || Width <= 0 || Height <= 0)

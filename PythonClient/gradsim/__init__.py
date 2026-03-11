@@ -1,11 +1,19 @@
-from .client import GradSimClient
-from .agent_base import AgentBase
-from .agent_drone import DroneAgent
-from .agent_turret import TurretAgent
+"""Unified exports for the gradsim client package."""
+
+from .AgentBase import AgentBase
+from .AgentDrone import AgentDrone, DroneAgent
+from .AgentGuidance import AgentGuidance, GuidanceAgent
+from .AgentTurret import AgentTurret, TurretAgent
+from .client import GradSimClient, TCPClient
 
 __all__ = [
+    "TCPClient",
     "GradSimClient",
     "AgentBase",
+    "AgentDrone",
     "DroneAgent",
-    "TurretAgent"
+    "AgentTurret",
+    "TurretAgent",
+    "AgentGuidance",
+    "GuidanceAgent",
 ]

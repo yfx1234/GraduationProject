@@ -46,22 +46,34 @@ namespace
     }
 }
 
+/**
+ * @brief 构造错误响应 JSON
+ * @param Msg 错误信息
+ * @return 错误 JSON 字符串
+ */
 FString UGuidanceCommandHandler::MakeError(const FString& Msg)
 {
     return FString::Printf(TEXT("{\"status\":\"error\",\"message\":\"%s\"}"), *Msg);
 }
 
+/**
+ * @brief 构造成功响应 JSON
+ * @param Msg 成功说明
+ * @return 成功 JSON 字符串
+ */
 FString UGuidanceCommandHandler::MakeOk(const FString& Msg)
 {
     return FString::Printf(TEXT("{\"status\":\"ok\",\"message\":\"%s\"}"), *Msg);
 }
 
+/** @brief 构造制导命令处理器并初始化默认状态 */
 UGuidanceCommandHandler::UGuidanceCommandHandler()
     : CurrentMethod(nullptr)
     , CurrentMethodName(TEXT("predictive"))
 {
 }
 
+/** @brief 析构处理器，释放非 UObject 算法对象 */
 UGuidanceCommandHandler::~UGuidanceCommandHandler()
 {
     if (CurrentMethod)
@@ -71,6 +83,10 @@ UGuidanceCommandHandler::~UGuidanceCommandHandler()
     }
 }
 
+/**
+ * @brief 延迟初始化预测器、制导算法和视觉拦截控制器
+ * 保证首次收到命令时才分配相关运行资源。
+ */
 void UGuidanceCommandHandler::EnsureInitialized()
 {
     if (!Predictor)
@@ -92,6 +108,13 @@ void UGuidanceCommandHandler::EnsureInitialized()
     }
 }
 
+/**
+ * @brief 按任务角色查找无人机
+ * @param Manager Agent 管理器
+ * @param Role 目标角色
+ * @param ExcludeId 需要排除的 ID
+ * @return 匹配到的无人机实例
+ */
 ADronePawn* UGuidanceCommandHandler::FindDroneByRole(UAgentManager* Manager, EDroneMissionRole Role, const FString& ExcludeId) const
 {
     if (!Manager)
@@ -117,6 +140,13 @@ ADronePawn* UGuidanceCommandHandler::FindDroneByRole(UAgentManager* Manager, EDr
     return nullptr;
 }
 
+/**
+ * @brief 执行制导相关命令
+ * @param JsonObject 请求 JSON
+ * @param World 当前场景 World
+ * @return 命令执行结果 JSON
+ * 该入口统一处理算法切换、炮台制导、无人机拦截和视觉闭环控制。
+ */
 FString UGuidanceCommandHandler::HandleCallGuidance(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World)
 {
     const TSharedPtr<FJsonObject>* CmdObj = nullptr;
@@ -637,6 +667,12 @@ FString UGuidanceCommandHandler::HandleCallGuidance(const TSharedPtr<FJsonObject
     return MakeError(FString::Printf(TEXT("Unknown function: %s"), *Function));
 }
 
+/**
+ * @brief 获取当前制导状态快照
+ * @param JsonObject 请求 JSON
+ * @param World 当前场景 World
+ * @return 制导状态 JSON
+ */
 FString UGuidanceCommandHandler::HandleGetGuidanceState(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World)
 {
     EnsureInitialized();

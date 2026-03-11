@@ -1,4 +1,4 @@
-﻿#include "SimulationRecorder.h"
+#include "SimulationRecorder.h"
 
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
@@ -6,6 +6,10 @@
 
 USimulationRecorder* USimulationRecorder::Instance = nullptr;
 
+/**
+ * @brief 获取录制器单例
+ * 若不存在则创建对象并加入 Root，保证录制期间不会被垃圾回收。
+ */
 USimulationRecorder* USimulationRecorder::GetInstance()
 {
     if (!Instance)
@@ -16,6 +20,10 @@ USimulationRecorder* USimulationRecorder::GetInstance()
     return Instance;
 }
 
+/**
+ * @brief 释放录制器单例
+ * 销毁前会先调用 Stop，确保状态复位。
+ */
 void USimulationRecorder::Cleanup()
 {
     if (Instance)
@@ -26,6 +34,12 @@ void USimulationRecorder::Cleanup()
     }
 }
 
+/**
+ * @brief 开始录制 JSONL 文件
+ * @param InPath 输出文件路径
+ * @return 文件创建成功时返回 `true`
+ * 若未指定路径，则自动在 `Saved/SimRecords` 下生成带时间戳的文件名。
+ */
 bool USimulationRecorder::Start(const FString& InPath)
 {
     FString FinalPath = InPath;
@@ -48,11 +62,18 @@ bool USimulationRecorder::Start(const FString& InPath)
     return true;
 }
 
+/** @brief 停止录制，仅更新内部状态，不删除现有文件 */
 void USimulationRecorder::Stop()
 {
     bRecording = false;
 }
 
+/**
+ * @brief 追加一条事件到 JSONL 文件
+ * @param Type 事件类型
+ * @param JsonPayload 事件负载 JSON
+ * 每条记录都会补充 UTC 时间戳，方便回放时按事件顺序重建过程。
+ */
 void USimulationRecorder::RecordJsonLine(const FString& Type, const FString& JsonPayload)
 {
     if (!bRecording || RecordPath.IsEmpty())
@@ -69,4 +90,3 @@ void USimulationRecorder::RecordJsonLine(const FString& Type, const FString& Jso
     FFileHelper::SaveStringToFile(Line, *RecordPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM, &IFileManager::Get(), EFileWrite::FILEWRITE_Append);
     ++RecordCount;
 }
-

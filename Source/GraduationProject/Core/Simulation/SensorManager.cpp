@@ -5,6 +5,12 @@
 
 namespace
 {
+    /**
+     * @brief 将 Unreal 坐标向量转换到指定输出坐标系
+     * @param ValueUE Unreal 世界坐标下的向量
+     * @param Frame 目标坐标系名称
+     * @return 转换后的向量
+     */
     FVector ConvertUEToFrame(const FVector& ValueUE, const FString& Frame)
     {
         FString Lower = Frame;
@@ -17,6 +23,12 @@ namespace
         return ValueUE;
     }
 
+    /**
+     * @brief 将 Unreal 欧拉角转换到指定输出坐标系
+     * @param RotUE Unreal 世界坐标下的姿态
+     * @param Frame 目标坐标系名称
+     * @return 转换后的姿态角
+     */
     FRotator ConvertUEToFrameRotator(const FRotator& RotUE, const FString& Frame)
     {
         FString Lower = Frame;
@@ -28,6 +40,12 @@ namespace
 
         return RotUE;
     }
+
+    /**
+     * @brief 根据高度估算标准大气压
+     * @param AltitudeMeters 海拔高度（米）
+     * @return 估算气压值（Pa）
+     */
     double EstimatePressurePa(double AltitudeMeters)
     {
         const double H = FMath::Max(0.0, static_cast<double>(AltitudeMeters));
@@ -37,6 +55,7 @@ namespace
 
 USensorManager* USensorManager::Instance = nullptr;
 
+/** @brief 获取传感器管理器单例 */
 USensorManager* USensorManager::GetInstance()
 {
     if (!Instance)
@@ -47,6 +66,7 @@ USensorManager* USensorManager::GetInstance()
     return Instance;
 }
 
+/** @brief 释放传感器管理器单例并清空缓存 */
 void USensorManager::Cleanup()
 {
     if (Instance)
@@ -57,6 +77,14 @@ void USensorManager::Cleanup()
     }
 }
 
+/**
+ * @brief 构建无人机传感器 JSON
+ * @param DroneId 无人机 ID
+ * @param World 当前场景 World
+ * @param Frame 输出坐标系，支持 `ue` 与 `ned`
+ * @return 传感器数据 JSON 字符串
+ * 输出内容包含 IMU、GPS、气压计和运动学信息，其中线加速度由相邻两帧速度差分估计。
+ */
 FString USensorManager::BuildDroneSensorJson(const FString& DroneId, UWorld* World, const FString& Frame)
 {
     if (!World)

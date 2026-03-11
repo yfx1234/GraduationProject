@@ -10,22 +10,20 @@
 #include "HAL/IConsoleManager.h"
 
 /**
- * @brief 闁哄瀚伴埀顒傚Т閸ら亶寮?
- * 闁告帗绋戠紓鎾诲嫉妤﹀潡鐓╃紓鍐╁灦閻楁悂濡存担鍛婄＝濞戞搩浜濆Λ鍡欑礄绾绀勯梺顐ｄ亢缁诲啴骞撻幒鎾旑偊姊介崟顓熺祷闁挎稑顦埀?
- * 闁硅棄瀚崕姘緞?Yaw/Pitch 濞存粍鍨佃ぐ鎾晬閸儮鍋撳宕囩畺闁圭粯甯楄潕闂傚嫬瀚鍐晬婢跺牃鍋?
- * SceneCaptureComponent2D 闁?CineCameraComponent闁挎稑鐗撳顕€鎯堥埀顒勫礆?Pitch 濞存粍鍨佃ぐ鎾晬?
+ * @brief 构造无人机 Pawn
+ * 创建机体、旋翼、云台、相机和飞行动力学组件，并建立附着层级。
  */
 ADronePawn::ADronePawn()
 {
     PrimaryActorTick.bCanEverTick = true;
 
-    // 闁冲厜鍋撻柍鍏夊亾 闁哄秴婀辩划宥嗙鐠虹儤瀚查柡鍫ョ細闂?闁冲厜鍋撻柍鍏夊亾
+    // 创建根节点和机体网格。
     RootComp = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
     SetRootComponent(RootComp);
     BodyMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BodyMesh"));
     BodyMesh->SetupAttachment(RootComp);
 
-    // 闁冲厜鍋撻柍鍏夊亾 闁搞儲绋愰柌婊堝籍鐎ｎ剝鈧?闁?闂侇偅淇虹换?BodyMesh 濞戞挸锕﹀▓鎴﹀箵閹烘挃顐︽⒔閸曨厽绲?闁冲厜鍋撻柍鍏夊亾
+    // 创建四个旋翼网格，并挂到机体对应插槽上。
     Fan0 = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Fan0"));
     Fan0->SetupAttachment(BodyMesh, TEXT("Drone_Fan_002"));
     Fan1 = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Fan1"));
@@ -35,13 +33,13 @@ ADronePawn::ADronePawn()
     Fan3 = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Fan3"));
     Fan3->SetupAttachment(BodyMesh, TEXT("Drone_Fan3_002"));
 
-    // 闁冲厜鍋撻柍鍏夊亾 闁硅棄瀚崕姘緞缂堢姷闅橀柛?闁?Yaw 闂傚嫬瀚鍐礆?BodyMesh 闁圭粯甯楄潕闁挎稑顒tch 闂傚嫬瀚鍐礆?Yaw 闁圭粯甯楄潕 闁冲厜鍋撻柍鍏夊亾
+    // 创建云台偏航轴和俯仰轴网格。
     CameraYawMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CameraYawMesh"));
     CameraYawMesh->SetupAttachment(BodyMesh, TEXT("Camera_Yaw_002"));
     CameraPitchMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CameraPitchMesh"));
     CameraPitchMesh->SetupAttachment(CameraYawMesh, TEXT("Camera_Pitch_002"));
 
-    // 闁冲厜鍋撻柍鍏夊亾 闁革妇鍎ゅ▍娆撴煂閸ヮ剚鑲犵紓浣稿濞?闁?闂傚嫬瀚鍐礆?Pitch 濞存粍鍨佃ぐ?闁冲厜鍋撻柍鍏夊亾
+    // 创建导出图像用的 SceneCapture，并禁用运动模糊。
     DroneSceneCapture = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("DroneSceneCapture"));
     DroneSceneCapture->SetupAttachment(CameraPitchMesh);
     DroneSceneCapture->bCaptureEveryFrame = true;
@@ -55,18 +53,18 @@ ADronePawn::ADronePawn()
     DroneSceneCapture->PostProcessSettings.MotionBlurPerObjectSize = 0.0f;
     DroneSceneCapture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 
-    // 闁冲厜鍋撻柍鍏夊亾 CineCamera 闁?闁活潿鍔嬬花顒傜磼瑜庢竟娆撳捶閻戞ɑ鐝?PostProcess 閻犱礁澧介悿?闁冲厜鍋撻柍鍏夊亾
+    // 创建 CineCamera，用于继承场景 PostProcess，再同步给 SceneCapture。
     DroneCineCamera = CreateDefaultSubobject<UCineCameraComponent>(TEXT("DroneCineCamera"));
     DroneCineCamera->SetupAttachment(CameraPitchMesh);
     DroneCineCamera->SetActive(false);
 
-    // 闁冲厜鍋撻柍鍏夊亾 閺夆晜鍔曟慨鈺冪磼閸曨亝顐?闁冲厜鍋撻柍鍏夊亾
+    // 创建飞行控制与状态积分组件。
     MovementComp = CreateDefaultSubobject<UDroneMovementComponent>(TEXT("Movement"));
 }
 
 /**
- * @brief 婵炴挸鎲￠崹娆忣嚕閳ь剚鎱ㄧ€ｎ偅顦ч柛鎺撶箓椤劙宕?
- * 闁告帗绻傞～鎰板礌閺嶎剛绠ラ柛鏂诲妺鐠炪垽鎯囬悢宄版闁轰浇鍩囬埀顑跨閸ㄥ崬顕?RenderTarget 妤犵偛鐖奸崢銈囩磾?SceneCapture闁靛棔鐒﹂弫鐐哄礃?Agent
+ * @brief 初始化无人机运行时状态
+ * 将地图初始位置写入飞控状态，创建 RenderTarget，并向 `AgentManager` 注册自身。
  */
 void ADronePawn::BeginPlay()
 {
@@ -81,7 +79,7 @@ void ADronePawn::BeginPlay()
         MovementComp->SetControlMode(ControlMode);
     }
 
-    // 闁告帗绋戠紓?RenderTarget 妤犵偛鐖奸崢銈囩磾?SceneCapture
+    // 创建相机渲染目标并挂到 SceneCapture。
     UTextureRenderTarget2D* RT = NewObject<UTextureRenderTarget2D>(this);
     RT->InitCustomFormat(CameraWidth, CameraHeight, PF_B8G8R8A8, false);
     RT->ClearColor = FLinearColor::Black;
@@ -121,8 +119,9 @@ void ADronePawn::BeginPlay()
 }
 
 /**
- * @brief 婵絽绻愰幎姘跺即鐎涙ɑ鐓€
- * @param DeltaTime 閻㈩垎鍥紵闂傚懏姊瑰鍌炴⒒?
+ * @brief 每帧同步无人机状态
+ * @param DeltaTime 帧间隔（秒）
+ * 从飞控组件读取当前状态，并同步到 Actor、旋翼动画和云台姿态。
  */
 void ADronePawn::Tick(float DeltaTime)
 {
@@ -135,8 +134,8 @@ void ADronePawn::Tick(float DeltaTime)
 }
 
 /**
- * @brief 閻忓繐妫旂挒銏ゆ儑閻斿搫笑闁诡兛绀侀幃鎾愁潰閵夈儱鐓?UE Actor Transform
- * @param State 闁哄啰濮冲Ч澶愬嫉閸濆嫮绉奸柛鎾崇Ф婵悂骞€?
+ * @brief 将飞控状态应用到场景 Actor
+ * @param State 需要同步的无人机状态
  */
 void ADronePawn::ApplyStateToActor(const FDroneState& State)
 {
@@ -146,11 +145,9 @@ void ADronePawn::ApplyStateToActor(const FDroneState& State)
 }
 
 /**
- * @brief 闁哄洤鐡ㄩ弻濠囨懚閻戞ɑ顥嬫俊妞煎妽濡棙娼鈧慨鈺呮偨?
- * @param DeltaTime 閻㈩垎鍥紵闂傚懏妫戠槐娆戠矓閹虹偟绀?
- * 閻忓繐妫涢弫鎼佸嫉妤︽寧绁梺?(rad/s) 閺夌儐鍓氬畷鍙夌▔閻戞妲ㄩ悽顖嗗嫭顥嬮弶鐑嗗墲椤鎯旈敂鑲╃獥
- *   RPM = 閿?* 60 / (2閿?
- *   閾绘渽ngle = RPM * 360 / 60 * DeltaTime
+ * @brief 更新旋翼动画
+ * @param DeltaTime 帧间隔（秒）
+ * 电机角速度以 rad/s 存储，先换算为 RPM，再计算每帧旋转角度。
  */
 void ADronePawn::UpdatePropellerAnimation(float DeltaTime)
 {
@@ -169,9 +166,9 @@ void ADronePawn::UpdatePropellerAnimation(float DeltaTime)
 }
 
 /**
- * @brief 闁哄秷顫夊畵浣烘閵忕姷绌块柤鎯у槻瑜板洦顦版惔銏狀暬缂傚啯鍨堕悧鍝ョ磼閸曨亝顐?
- * @param Index 濡炲瀛╂晶鏍閵忕姷绌?(0-3)
- * @return 閻庣數鎳撶花鏌ユ儍?UStaticMeshComponent
+ * @brief 获取指定旋翼网格组件
+ * @param Index 旋翼索引（0-3）
+ * @return 对应的旋翼网格组件；越界时返回空指针
  */
 UStaticMeshComponent* ADronePawn::GetFanMesh(int32 Index) const
 {
@@ -186,8 +183,9 @@ UStaticMeshComponent* ADronePawn::GetFanMesh(int32 Index) const
 }
 
 /**
- * @brief 閻犱礁澧介悿鍡涙儎椤旂晫鍨煎ù锝呯Ф閻?
- * @param TargetPos 闁烩晩鍠楅悥锝嗘媴瀹ュ洨鏋?
+ * @brief 设置位置控制目标
+ * @param TargetPos 目标位置（米）
+ * @param Speed 期望飞行速度
  */
 void ADronePawn::SetTargetPosition(const FVector& TargetPos, float Speed)
 {
@@ -203,8 +201,8 @@ void ADronePawn::SetTargetPosition(const FVector& TargetPos, float Speed)
 }
 
 /**
- * @brief 閻犱礁澧介悿鍡涙儎椤旂晫鍨奸梺顐ゅ枎鐎?
- * @param TargetVel 闁烩晩鍠楅悥锝夋焻閻斿嘲顔?
+ * @brief 设置速度控制目标
+ * @param TargetVel 目标速度（米/秒）
  */
 void ADronePawn::SetTargetVelocity(const FVector& TargetVel)
 {
@@ -219,14 +217,22 @@ void ADronePawn::SetTargetVelocity(const FVector& TargetVel)
     }
 }
 
+/**
+ * @brief 以速度模式移动
+ * @param Vx X 方向速度（米/秒）
+ * @param Vy Y 方向速度（米/秒）
+ * @param Vz Z 方向速度（米/秒）
+ */
 void ADronePawn::MoveByVelocity(float Vx, float Vy, float Vz)
 {
     SetTargetVelocity(FVector(Vx, Vy, Vz));
 }
 
 /**
- * @brief 閻犙呭厴椤ワ綁宕氶悧鍫濈樄閻庤宀搁悵顔芥償?
- * @param Altitude 闁烩晩鍠楅悥锝嗩殗濡搫顔?
+ * @brief 设置航向控制模式
+ * @param YawMode 偏航控制模式
+ * @param Drivetrain 运动学约束模式
+ * @param YawDeg 目标偏航角
  */
 void ADronePawn::SetHeadingControl(EDroneYawMode YawMode, EDroneDrivetrainMode Drivetrain, float YawDeg)
 {
@@ -236,6 +242,10 @@ void ADronePawn::SetHeadingControl(EDroneYawMode YawMode, EDroneDrivetrainMode D
     }
 }
 
+/**
+ * @brief 起飞到指定高度
+ * @param Altitude 目标高度（米）
+ */
 void ADronePawn::Takeoff(float Altitude)
 {
     FVector CurrentPos = CurrentState.GetPosition();
@@ -244,7 +254,7 @@ void ADronePawn::Takeoff(float Altitude)
     UE_LOG(LogTemp, Log, TEXT("[DronePawn] Takeoff to %.1f m"), Altitude);
 }
 
-/** @brief 闂傚嫬绉烽幆銈夊礆閺夋寧鍕鹃梻?*/
+/** @brief 降落到地面高度 */
 void ADronePawn::Land()
 {
     FVector CurrentPos = CurrentState.GetPosition();
@@ -253,7 +263,7 @@ void ADronePawn::Land()
     UE_LOG(LogTemp, Log, TEXT("[DronePawn] Landing"));
 }
 
-/** @brief 闁革负鍔岀紞瀣礈瀹ュ嫮绉寸紓鍐惧枟閸嬫捇宕?*/
+/** @brief 在当前位置悬停 */
 void ADronePawn::Hover()
 {
     FVector CurrentPos = CurrentState.GetPosition();
@@ -261,22 +271,22 @@ void ADronePawn::Hover()
     UE_LOG(LogTemp, Log, TEXT("[DronePawn] Hover at %s"), *CurrentPos.ToString());
 }
 
-/** @brief 闁兼儳鍢茶ぐ鍥亹閹惧啿顤呭ù锝呯Ф閻?*/
+/** @brief 获取当前位置 */
 FVector ADronePawn::GetCurrentPosition() const
 {
     return CurrentState.GetPosition();
 }
 
-/** @brief 闁兼儳鍢茶ぐ鍥亹閹惧啿顤呴梺顐ゅ枎鐎?*/
+/** @brief 获取当前速度 */
 FVector ADronePawn::GetCurrentVelocity() const
 {
     return CurrentState.GetVelocity();
 }
 
 /**
- * @brief 闂佹彃绉堕悿鍡涘籍閻樿鲸鐪介柡鍫濇惈閸╁矂骞愰崶褏鏆板ù锝呯Ф閻ゅ棝宕仦鍙參骞€?
- * @param NewLocation 闁烩晩鍠楅悥锝嗘媴瀹ュ洨鏋?
- * @param NewRotation 闁烩晩鍠楅悥锝嗘叏閹稿簶鍋?
+ * @brief 重置无人机状态
+ * @param NewLocation 新位置（米）
+ * @param NewRotation 新姿态
  */
 void ADronePawn::ResetDrone(const FVector& NewLocation, const FRotator& NewRotation)
 {
@@ -294,12 +304,10 @@ void ADronePawn::ResetDrone(const FVector& NewLocation, const FRotator& NewRotat
     UE_LOG(LogTemp, Log, TEXT("[DronePawn] Reset to %s"), *NewLocation.ToString());
 }
 
-// 闁冲厜鍋撻柍鍏夊亾 闁硅棄瀚崕姘緞缂堢姷闅橀柛娆戝鐢爼宕?闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
-
 /**
- * @brief 閻犱礁澧介悿鍡涘箺閸曨偄鍓煎鍓佺節缁垶宕ｉ幍顔界獥闁哄秴娲╅～妤佹償?
- * @param TargetPitch 闁烩晩鍠楅悥锝嗙┍椤栨瑨鐦介悷?
- * @param TargetYaw 闁烩晩鍠楅悥锝夊磻韫囨艾鐒婚悷?
+ * @brief 设置云台目标角度
+ * @param TargetPitch 目标俯仰角（度）
+ * @param TargetYaw 目标偏航角（度）
  */
 void ADronePawn::SetCameraAngles(float TargetPitch, float TargetYaw)
 {
@@ -308,26 +316,23 @@ void ADronePawn::SetCameraAngles(float TargetPitch, float TargetYaw)
 }
 
 /**
- * @brief 闁哄洤鐡ㄩ弻濠囧箺閸曨偄鍓煎?Yaw/Pitch 闁哄啫顑堝ù鍡涘箵閹烘垟鍋?
- * @param DeltaTime 閻㈩垎鍥紵闂傚懏姊瑰鍌炴⒒?
- * Yaw 闁哄啫顑堝ù鍡樻償閺冨倹鏆忛柛?CameraYawMesh闁挎稑顒tch 闁哄啫顑堝ù鍡樻償閺冨倹鏆忛柛?CameraPitchMesh
+ * @brief 更新云台角度插值
+ * @param DeltaTime 帧间隔（秒）
+ * 偏航轴使用归一化角差避免跨越 `-180~180` 时跳变。
  */
 void ADronePawn::UpdateCameraRotation(float DeltaTime)
 {
-    // Yaw 闁圭粯甯掗埀顒傘€嬬槐娆愬緞閸曨厽鍊?-180~180 缂備焦娲栧﹢鈧梻鍌ゅ櫍椤ｄ粙鏁?
     float YawDiff = FRotator::NormalizeAxis(CameraTargetYaw - CameraCurrentYaw);
     float AdjustedTargetYaw = CameraCurrentYaw + YawDiff;
     CameraCurrentYaw = FMath::FInterpTo(CameraCurrentYaw, AdjustedTargetYaw, DeltaTime, CameraRotationSpeed);
 
-    // Pitch 闁圭粯甯掗埀?
     CameraCurrentPitch = FMath::FInterpTo(CameraCurrentPitch, CameraTargetPitch, DeltaTime, CameraRotationSpeed);
 
-    // 閹煎瓨姊婚弫銈夊籍鐎ｎ厽绁柛鎺楊暒缁垶宕ｉ幍顔剧Ч闁?
     if (CameraYawMesh) CameraYawMesh->SetRelativeRotation(FRotator(0.0f, CameraCurrentYaw, 0.0f));
     if (CameraPitchMesh) CameraPitchMesh->SetRelativeRotation(FRotator(0.0f, 0.0f, -CameraCurrentPitch));
 }
 
-/** @brief 閻?CineCamera 闁?PostProcess 閻犱礁澧介悿鍡涘触鐏炵虎鍔勯柛?SceneCapture */
+/** @brief 将可见网格写入 CustomDepth/Stencil，供分割图像使用 */
 void ADronePawn::ApplySegmentationStencil()
 {
     IConsoleVariable* CustomDepthVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.CustomDepth"));
@@ -352,6 +357,10 @@ void ADronePawn::ApplySegmentationStencil()
     }
 }
 
+/**
+ * @brief 将 CineCamera 的后处理设置同步给 SceneCapture
+ * 额外强制关闭运动模糊，以减少远程图像串帧和拖影。
+ */
 void ADronePawn::SyncPostProcessToCapture()
 {
     if (!DroneCineCamera || !DroneSceneCapture) return;
@@ -373,10 +382,9 @@ void ADronePawn::SyncPostProcessToCapture()
 }
 
 /**
- * @brief 闂佹彃娲▔锔界▔閳ь剛鏁濞存﹢宕撹箛鎾瑰珯閺夆晜鏌ㄥú?Base64 缂傚倹鐗滈悥婊堟儍?JPEG 閻庢稒顨堥浣圭▔?
- * @param Quality JPEG 闁告ê顑囩紓澶屾嫻閵娾晛娅?
- * @return Base64 缂傚倹鐗滈悥婊堟儍?JPEG 闁轰胶澧楀畵?
- * 闁归潧顑呮慨鈺冩喆閿曗偓瑜?SceneCapture 闂佹彃娲▔锔界▔閳ь剛鏁?闁?閻犲洩顕цぐ鍥磽韫囨洜顦?闁?JPEG 缂傚倹鐗滈悥?闁?Base64
+ * @brief 捕获当前相机画面并返回 Base64 JPEG
+ * @param Quality JPEG 压缩质量；小于等于 0 时使用 `JpegQuality`
+ * @return Base64 编码后的 JPEG 字符串
  */
 FString ADronePawn::CaptureImageBase64(int32 Quality)
 {
@@ -387,10 +395,3 @@ FString ADronePawn::CaptureImageBase64(int32 Quality)
 
     return CameraCaptureUtils::CaptureColorJpegBase64(DroneSceneCapture, CameraWidth, CameraHeight, Quality);
 }
-
-
-
-
-
-
-

@@ -43,6 +43,10 @@ namespace
     }
 }
 
+/**
+ * @brief 初始化 HUD、PIP 状态和 Agent 列表控件
+ * 进入游戏后绑定快捷键，并根据配置决定是否创建 Agent 列表 UI。
+ */
 void ASimHUD::BeginPlay()
 {
     Super::BeginPlay();
@@ -51,6 +55,7 @@ void ASimHUD::BeginPlay()
 }
 
 
+/** @brief 确保 Agent 列表控件已创建并附加到视口 */
 void ASimHUD::EnsureAgentListWidget()
 {
     if (!bEnableAgentListWidget || AgentListWidget)
@@ -93,6 +98,7 @@ void ASimHUD::EnsureAgentListWidget()
         PC->bShowMouseCursor = true;
     }
 }
+/** @brief 为 PIP 开关和图像类型切换绑定快捷键 */
 void ASimHUD::BindPipHotkeys()
 {
     if (bPipHotkeysBound)
@@ -178,6 +184,10 @@ void ASimHUD::OnHotkeySetImageTypeInfrared()
     SetActivePipSlotImageType(AirSimImageUtils::EImageType::Infrared);
 }
 
+/**
+ * @brief 将图像类型应用到当前激活的 PIP 窗口
+ * @param ImageType 目标图像类型
+ */
 void ASimHUD::SetActivePipSlotImageType(AirSimImageUtils::EImageType ImageType)
 {
     EnsurePipInitialized();
@@ -189,6 +199,10 @@ void ASimHUD::SetActivePipSlotImageType(AirSimImageUtils::EImageType ImageType)
     SetPipImageType(ActivePipSlotIndex, static_cast<int32>(ImageType));
 }
 
+/**
+ * @brief 每帧绘制 HUD
+ * 依次绘制文本信息、PIP 窗口和调试状态摘要。
+ */
 void ASimHUD::DrawHUD()
 {
     Super::DrawHUD();
@@ -203,18 +217,21 @@ void ASimHUD::DrawHUD()
     DrawPipWindows();
 }
 
+/** @brief 绘制一行文本，并自动推进 Y 坐标 */
 void ASimHUD::DrawTextLine(const FString& Text, float X, float& Y, FLinearColor Color, float Scale)
 {
     DrawText(Text, Color, X, Y, nullptr, Scale);
     Y += 18.0f * Scale;
 }
 
+/** @brief 绘制 HUD 分节标题 */
 void ASimHUD::DrawSectionHeader(const FString& Title, float X, float& Y)
 {
     DrawText(Title, FLinearColor(0.3f, 0.8f, 1.0f), X, Y, nullptr, 1.2f);
     Y += 22.0f;
 }
 
+/** @brief 绘制当前 Agent 列表和关键状态 */
 void ASimHUD::DrawAgentInfo(float& Y)
 {
     const float X = 20.0f;
@@ -263,6 +280,7 @@ void ASimHUD::DrawAgentInfo(float& Y)
     }
 }
 
+/** @brief 绘制制导和拦截相关状态摘要 */
 void ASimHUD::DrawGuidanceInfo(float& Y)
 {
     const float X = 20.0f;
@@ -270,6 +288,7 @@ void ASimHUD::DrawGuidanceInfo(float& Y)
     DrawTextLine(TEXT("  (use get_guidance_state via TCP for details)"), X, Y, FLinearColor(0.6f, 0.6f, 0.6f));
 }
 
+/** @brief 绘制帧率信息并根据 FPS 变化颜色 */
 void ASimHUD::DrawFPS(float& Y)
 {
     const float X = 20.0f;
@@ -281,6 +300,10 @@ void ASimHUD::DrawFPS(float& Y)
     DrawTextLine(FString::Printf(TEXT("FPS: %.0f"), FPS), X, Y, FPSColor, 1.1f);
 }
 
+/**
+ * @brief 切换指定 PIP 窗口显隐
+ * @param SlotIndex 窗口索引
+ */
 void ASimHUD::TogglePipSlot(int32 SlotIndex)
 {
     EnsurePipInitialized();
@@ -307,6 +330,11 @@ void ASimHUD::TogglePipSlot(int32 SlotIndex)
         *GetImageTypeLabel(NormalizeImageType(Slot.ImageType)));
 }
 
+/**
+ * @brief 设置指定 PIP 窗口的数据源
+ * @param SlotIndex 窗口索引
+ * @param AgentId 目标 Agent ID
+ */
 void ASimHUD::SetPipSource(int32 SlotIndex, const FString& AgentId)
 {
     EnsurePipInitialized();
@@ -320,6 +348,11 @@ void ASimHUD::SetPipSource(int32 SlotIndex, const FString& AgentId)
     Slot.LastUpdateTimeSec = -1.0f;
 }
 
+/**
+ * @brief 设置指定 PIP 窗口的图像类型
+ * @param SlotIndex 窗口索引
+ * @param ImageType 图像类型码
+ */
 void ASimHUD::SetPipImageType(int32 SlotIndex, int32 ImageType)
 {
     EnsurePipInitialized();
@@ -336,6 +369,7 @@ void ASimHUD::SetPipImageType(int32 SlotIndex, int32 ImageType)
     UE_LOG(LogTemp, Log, TEXT("[PIP] Slot %d image_type -> %s"), SlotIndex + 1, *GetImageTypeLabel(Normalized));
 }
 
+/** @brief 绘制全部 PIP 窗口及其标题栏 */
 void ASimHUD::DrawPipWindows()
 {
     EnsurePipInitialized();
@@ -396,6 +430,7 @@ void ASimHUD::DrawPipWindows()
     }
 }
 
+/** @brief 获取可提供相机输出的 Agent ID，并按显示顺序排序 */
 TArray<FString> ASimHUD::GetSortedCameraAgentIds() const
 {
     UAgentManager* Manager = UAgentManager::GetInstance();
@@ -430,6 +465,7 @@ TArray<FString> ASimHUD::GetSortedCameraAgentIds() const
     return CameraIds;
 }
 
+/** @brief 在 Agent 集合变化后修复 PIP 的数据源绑定 */
 void ASimHUD::RefreshPipSourcesIfNeeded()
 {
     if (PipSlots.Num() == 0)
@@ -473,6 +509,7 @@ void ASimHUD::RefreshPipSourcesIfNeeded()
     }
 }
 
+/** @brief 初始化默认 PIP 槽位配置 */
 void ASimHUD::EnsurePipInitialized()
 {
     if (!bPipInitialized)
@@ -506,6 +543,7 @@ void ASimHUD::EnsurePipInitialized()
     RefreshPipSourcesIfNeeded();
 }
 
+/** @brief 查找下一个具备相机输出能力的 Agent */
 FString ASimHUD::FindNextAgentWithCamera(const FString& CurrentId) const
 {
     const TArray<FString> Ids = GetSortedCameraAgentIds();
@@ -527,6 +565,7 @@ FString ASimHUD::FindNextAgentWithCamera(const FString& CurrentId) const
     return Ids[StartIndex];
 }
 
+/** @brief 解析指定 Agent 当前使用的 RenderTarget */
 UTextureRenderTarget2D* ASimHUD::ResolvePipRenderTarget(const FString& AgentId) const
 {
     if (AgentId.IsEmpty())
@@ -559,6 +598,10 @@ UTextureRenderTarget2D* ASimHUD::ResolvePipRenderTarget(const FString& AgentId) 
     return nullptr;
 }
 
+/**
+ * @brief 解析指定 Agent 的捕获组件和图像尺寸
+ * @return 解析成功时返回 `true`
+ */
 bool ASimHUD::ResolvePipCaptureInfo(const FString& AgentId, USceneCaptureComponent2D*& OutCapture, int32& OutWidth, int32& OutHeight) const
 {
     OutCapture = nullptr;
@@ -611,6 +654,11 @@ bool ASimHUD::ResolvePipCaptureInfo(const FString& AgentId, USceneCaptureCompone
     return false;
 }
 
+/**
+ * @brief 根据当前窗口配置生成要显示的纹理
+ * @param Slot PIP 窗口状态
+ * @return 可直接用于 HUD 绘制的纹理对象
+ */
 UTexture* ASimHUD::ResolvePipTexture(FPipSlotState& Slot)
 {
     USceneCaptureComponent2D* Capture = nullptr;
@@ -669,6 +717,15 @@ UTexture* ASimHUD::ResolvePipTexture(FPipSlotState& Slot)
     return Slot.ProcessedTexture;
 }
 
+/**
+ * @brief 将处理后的像素缓存上传到瞬态纹理
+ * @param Slot PIP 窗口状态
+ * @param Pixels 像素数据
+ * @param Width 图像宽度
+ * @param Height 图像高度
+ * @param SourceType 源图像类型
+ * @return 上传成功时返回 `true`
+ */
 bool ASimHUD::UpdateSlotProcessedTexture(FPipSlotState& Slot, const TArray<FColor>& Pixels, int32 Width, int32 Height, AirSimImageUtils::EImageType SourceType)
 {
     if (Pixels.Num() != Width * Height || Width <= 0 || Height <= 0)
@@ -739,6 +796,7 @@ bool ASimHUD::UpdateSlotProcessedTexture(FPipSlotState& Slot, const TArray<FColo
     return true;
 }
 
+/** @brief 将整数类型码转换为受支持的图像类型枚举 */
 AirSimImageUtils::EImageType ASimHUD::NormalizeImageType(int32 ImageType) const
 {
     switch (ImageType)
@@ -752,6 +810,7 @@ AirSimImageUtils::EImageType ASimHUD::NormalizeImageType(int32 ImageType) const
     }
 }
 
+/** @brief 获取图像类型对应的显示名称 */
 FString ASimHUD::GetImageTypeLabel(AirSimImageUtils::EImageType ImageType) const
 {
     return AirSimImageUtils::ToDisplayString(ImageType);

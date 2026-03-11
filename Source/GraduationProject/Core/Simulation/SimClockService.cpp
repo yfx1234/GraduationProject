@@ -1,10 +1,14 @@
-﻿#include "SimClockService.h"
+#include "SimClockService.h"
 
 #include "Engine/World.h"
 #include "GameFramework/WorldSettings.h"
 
 USimClockService* USimClockService::Instance = nullptr;
 
+/**
+ * @brief 获取仿真时钟服务单例
+ * 若不存在则立即创建，并加入 Root 防止 GC 回收。
+ */
 USimClockService* USimClockService::GetInstance()
 {
     if (!Instance)
@@ -15,6 +19,7 @@ USimClockService* USimClockService::GetInstance()
     return Instance;
 }
 
+/** @brief 释放仿真时钟服务单例 */
 void USimClockService::Cleanup()
 {
     if (Instance)
@@ -24,6 +29,11 @@ void USimClockService::Cleanup()
     }
 }
 
+/**
+ * @brief 初始化时钟参考点
+ * @param World 当前场景 World
+ * 记录墙钟与 World 时间的起点，后续所有时间查询都以此为零点。
+ */
 void USimClockService::Initialize(UWorld* World)
 {
     StartWallTimeSec = FPlatformTime::Seconds();
@@ -31,6 +41,12 @@ void USimClockService::Initialize(UWorld* World)
     bInitialized = true;
 }
 
+/**
+ * @brief 设置仿真时间倍率
+ * @param InTimeScale 目标倍率
+ * @param World 当前场景 World
+ * 时间倍率会同步到 WorldSettings 的 Time Dilation。
+ */
 void USimClockService::SetTimeScale(float InTimeScale, UWorld* World)
 {
     TimeScale = FMath::Clamp(InTimeScale, 0.05f, 20.0f);
@@ -40,6 +56,11 @@ void USimClockService::SetTimeScale(float InTimeScale, UWorld* World)
     }
 }
 
+/**
+ * @brief 获取累计仿真时间
+ * @param World 当前场景 World
+ * @return 从 Initialize 起累计的仿真时间（秒）
+ */
 double USimClockService::GetSimTimeSec(UWorld* World) const
 {
     if (!World)
@@ -49,11 +70,11 @@ double USimClockService::GetSimTimeSec(UWorld* World) const
     return World->GetTimeSeconds() - StartWorldTimeSec;
 }
 
+/**
+ * @brief 获取累计墙钟时间
+ * @return 从 Initialize 起累计的真实时间（秒）
+ */
 double USimClockService::GetWallTimeSec() const
 {
     return FPlatformTime::Seconds() - StartWallTimeSec;
 }
-
-
-
-

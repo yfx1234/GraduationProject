@@ -15,6 +15,11 @@
 
 namespace
 {
+    /**
+     * @brief 根据 Actor 实际类型生成列表显示类型
+     * @param Agent 智能体 Actor
+     * @return `drone`、`turret` 或 `actor`
+     */
     FString DetectAgentType(AActor* Agent)
     {
         if (Cast<ADronePawn>(Agent))
@@ -28,6 +33,12 @@ namespace
         return TEXT("actor");
     }
 
+    /**
+     * @brief 计算列表排序优先级
+     * @param Data 列表项数据
+     * @return 数值越小，排序越靠前
+     * 默认将 `drone_0`、其他无人机、`turret_0`、其他炮台依次排前。
+     */
     int32 GetAgentPriority(const UAgentListItemData* Data)
     {
         if (!Data)
@@ -55,11 +66,20 @@ namespace
     }
 }
 
+/**
+ * @brief 绑定用于联动的相机 Pawn
+ * @param InCameraPawn 相机实例
+ */
 void UAgentListWidget::SetCameraPawn(ACameraPawn* InCameraPawn)
 {
     CameraPawn = InCameraPawn;
 }
 
+/**
+ * @brief 构建 Agent 列表 Slate 控件树
+ * @return 根 Slate 控件
+ * 列表固定停靠在右上角，包含标题、提示文本和单选列表视图。
+ */
 TSharedRef<SWidget> UAgentListWidget::RebuildWidget()
 {
     return SNew(SOverlay)
@@ -107,6 +127,10 @@ TSharedRef<SWidget> UAgentListWidget::RebuildWidget()
         ];
 }
 
+/**
+ * @brief 初始化列表控件
+ * 注册 Agent 列表变化回调，并立即执行一次初始刷新。
+ */
 void UAgentListWidget::NativeConstruct()
 {
     Super::NativeConstruct();
@@ -119,6 +143,10 @@ void UAgentListWidget::NativeConstruct()
     RefreshAgentList();
 }
 
+/**
+ * @brief 销毁列表控件
+ * 解除对 `AgentManager` 事件的绑定，避免悬挂回调。
+ */
 void UAgentListWidget::NativeDestruct()
 {
     if (UAgentManager* Manager = UAgentManager::GetInstance())
@@ -129,6 +157,10 @@ void UAgentListWidget::NativeDestruct()
     Super::NativeDestruct();
 }
 
+/**
+ * @brief 对当前列表项执行稳定排序
+ * 先按类型优先级排序，再按字符串 ID 排序。
+ */
 void UAgentListWidget::SortItems()
 {
     ListDataItems.Sort([](const UObject& A, const UObject& B)
@@ -149,6 +181,10 @@ void UAgentListWidget::SortItems()
     });
 }
 
+/**
+ * @brief 根据 `AgentManager` 当前状态刷新列表内容
+ * 复用已存在的数据项，只有在新增、删除或类型变化时才触发列表重建。
+ */
 void UAgentListWidget::RefreshAgentList()
 {
     UAgentManager* Manager = UAgentManager::GetInstance();
@@ -237,6 +273,12 @@ void UAgentListWidget::RefreshAgentList()
     }
 }
 
+/**
+ * @brief 生成单行列表项视图
+ * @param Item 列表数据对象
+ * @param OwnerTable 所属表格
+ * @return Slate 行控件
+ */
 TSharedRef<ITableRow> UAgentListWidget::HandleGenerateRow(UObject* Item, const TSharedRef<STableViewBase>& OwnerTable)
 {
     const UAgentListItemData* Data = Cast<UAgentListItemData>(Item);
@@ -251,6 +293,12 @@ TSharedRef<ITableRow> UAgentListWidget::HandleGenerateRow(UObject* Item, const T
         ];
 }
 
+/**
+ * @brief 处理列表选中变化
+ * @param Item 当前选中的数据项
+ * @param SelectInfo 选中来源
+ * 若数据无效，则通知相机切回自由视角。
+ */
 void UAgentListWidget::HandleSelectionChanged(UObject* Item, ESelectInfo::Type SelectInfo)
 {
     ACameraPawn* Pawn = CameraPawn.Get();
@@ -268,6 +316,3 @@ void UAgentListWidget::HandleSelectionChanged(UObject* Item, ESelectInfo::Type S
 
     Pawn->OnItemClicked(Data->AgentId, Data->AgentActor.Get());
 }
-
-
-

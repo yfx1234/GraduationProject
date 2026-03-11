@@ -11,6 +11,13 @@ namespace
     constexpr float kDefaultDt = 0.08f;
 
     template <typename T>
+/**
+     * @brief 以模板方式读取 JSON 数值字段
+     * @param Obj JSON 对象
+     * @param Field 字段名
+     * @param OutValue 输出值
+     * @return 读取成功时返回 `true`
+     */
     bool TryGetNumberAs(const TSharedPtr<FJsonObject>& Obj, const TCHAR* Field, T& OutValue)
     {
         if (!Obj.IsValid() || !Obj->HasField(Field))
@@ -22,6 +29,13 @@ namespace
         return true;
     }
 
+/**
+     * @brief 在 AgentManager 中按任务角色查找无人机
+     * @param Manager Agent 管理器
+     * @param Role 目标角色
+     * @param ExcludeId 需要排除的无人机 ID
+     * @return 匹配到的无人机实例
+     */
     ADronePawn* FindDroneByRole(UAgentManager* Manager, EDroneMissionRole Role, const FString& ExcludeId = TEXT(""))
     {
         if (!Manager)
@@ -48,6 +62,10 @@ namespace
     }
 }
 
+/**
+ * @brief 初始化预测器与各路 PID 控制器
+ * 仅在第一次使用时创建，避免重复分配对象。
+ */
 void UVisualInterceptController::EnsureInitialized()
 {
     if (!FeaturePredictor)
@@ -75,11 +93,16 @@ void UVisualInterceptController::EnsureInitialized()
     }
 }
 
+/** @brief 仅重置运行时状态机，不改动控制参数 */
 void UVisualInterceptController::ResetRuntimeOnly()
 {
     Runtime = FVisualRuntime();
 }
 
+/**
+ * @brief 重置视觉拦截控制器
+ * 会清空状态机、重置预测器和 PID 内部积分/微分状态。
+ */
 void UVisualInterceptController::Reset()
 {
     EnsureInitialized();
@@ -108,16 +131,19 @@ void UVisualInterceptController::Reset()
     ResetRuntimeOnly();
 }
 
+/** @brief 将布尔值转换为 JSON 字面量字符串 */
 FString UVisualInterceptController::BoolLiteral(bool bValue)
 {
     return bValue ? TEXT("true") : TEXT("false");
 }
 
+/** @brief 将偏航角归一化到 Unreal 标准范围 */
 float UVisualInterceptController::NormalizeYawDeg(float YawDeg)
 {
     return FRotator::NormalizeAxis(YawDeg);
 }
 
+/** @brief 将状态机枚举转换为字符串标签 */
 FString UVisualInterceptController::StateToString(EVisualState State)
 {
     switch (State)
@@ -136,6 +162,12 @@ FString UVisualInterceptController::StateToString(EVisualState State)
     }
 }
 
+/**
+ * @brief 规范化外部请求的方法名
+ * @param InMethod 输入方法名
+ * @param OutCanonical 输出标准化方法名
+ * @return 识别成功时返回 `true`
+ */
 bool UVisualInterceptController::NormalizeMethod(const FString& InMethod, FString& OutCanonical)
 {
     FString Method = InMethod;
@@ -174,16 +206,23 @@ bool UVisualInterceptController::NormalizeMethod(const FString& InMethod, FStrin
 
     return false;
 }
+/** @brief 构造错误响应 JSON */
 FString UVisualInterceptController::MakeError(const FString& Msg) const
 {
     return FString::Printf(TEXT("{\"status\":\"error\",\"message\":\"%s\"}"), *Msg.ReplaceCharWithEscapedChar());
 }
 
+/** @brief 构造成功响应 JSON */
 FString UVisualInterceptController::MakeOk(const FString& Msg) const
 {
     return FString::Printf(TEXT("{\"status\":\"ok\",\"message\":\"%s\"}"), *Msg.ReplaceCharWithEscapedChar());
 }
 
+/**
+ * @brief 对输入 dt 做容错和限幅
+ * @param Dt 原始帧间隔
+ * @return 可安全用于控制器更新的 dt
+ */
 float UVisualInterceptController::SafeDt(float Dt) const
 {
     if (!FMath::IsFinite(Dt) || Dt <= 0.0f)
@@ -193,6 +232,7 @@ float UVisualInterceptController::SafeDt(float Dt) const
     return FMath::Clamp(Dt, 0.005f, 0.5f);
 }
 
+/** @brief 将当前帧间隔同步给所有 PID 控制器 */
 void UVisualInterceptController::SyncPidTimeStep(float Dt)
 {
     if (YawPid)
@@ -209,6 +249,11 @@ void UVisualInterceptController::SyncPidTimeStep(float Dt)
     }
 }
 
+/**
+ * @brief 从启动/更新命令中提取控制参数
+ * @param CmdObj 参数 JSON
+ * 读取完成后会执行限幅，并同步更新 PID 的输出上限。
+ */
 void UVisualInterceptController::ApplyParamsFromJson(const TSharedPtr<FJsonObject>& CmdObj)
 {
     if (!CmdObj.IsValid())
@@ -275,6 +320,12 @@ void UVisualInterceptController::ApplyParamsFromJson(const TSharedPtr<FJsonObjec
     }
 }
 
+/**
+ * @brief 解析当前拦截机对象
+ * @param World 当前场景 World
+ * @param CmdObj 命令 JSON
+ * @return 拦截机无人机实例
+ */
 ADronePawn* UVisualInterceptController::ResolveInterceptor(UWorld* World, const TSharedPtr<FJsonObject>& CmdObj)
 {
     UAgentManager* Manager = UAgentManager::GetInstance();
@@ -318,6 +369,12 @@ ADronePawn* UVisualInterceptController::ResolveInterceptor(UWorld* World, const 
     return Drone;
 }
 
+/**
+ * @brief 解析当前目标机对象
+ * @param World 当前场景 World
+ * @param CmdObj 命令 JSON
+ * @return 目标无人机实例
+ */
 ADronePawn* UVisualInterceptController::ResolveTarget(UWorld* World, const TSharedPtr<FJsonObject>& CmdObj)
 {
     UAgentManager* Manager = UAgentManager::GetInstance();
@@ -356,6 +413,7 @@ ADronePawn* UVisualInterceptController::ResolveTarget(UWorld* World, const TShar
     return Drone;
 }
 
+/** @brief 构造启动响应 JSON */
 FString UVisualInterceptController::BuildStartJson() const
 {
     return FString::Printf(
@@ -379,6 +437,11 @@ FString UVisualInterceptController::BuildStartJson() const
         *BoolLiteral(Params.bUseKalman));
 }
 
+/**
+ * @brief 构造逐帧更新响应 JSON
+ * @param bValidControl 本帧是否产生有效控制输出
+ * @return 状态响应 JSON
+ */
 FString UVisualInterceptController::BuildUpdateJson(bool bValidControl) const
 {
     return FString::Printf(
@@ -405,6 +468,11 @@ FString UVisualInterceptController::BuildUpdateJson(bool bValidControl) const
         Runtime.LastYawRateDeg);
 }
 
+/**
+ * @brief 根据图像特征计算跟踪控制量
+ * @return 当前帧控制量有效时返回 `true`
+ * 该步骤会根据目标中心偏差和面积误差生成偏航、垂向与前向速度命令。
+ */
 bool UVisualInterceptController::ComputeTrackControl(
     ADronePawn* Interceptor,
     const FVector& Feature,
@@ -493,6 +561,11 @@ bool UVisualInterceptController::ComputeTrackControl(
     return true;
 }
 
+/**
+ * @brief 在丢失目标时执行搜索控制
+ * @param Interceptor 拦截机
+ * @param Dt 帧间隔
+ */
 void UVisualInterceptController::ComputeSearchControl(ADronePawn* Interceptor, float Dt)
 {
     if (!Interceptor)
@@ -529,6 +602,12 @@ void UVisualInterceptController::ComputeSearchControl(ADronePawn* Interceptor, f
     Runtime.LastCmdVel = CmdVel;
 }
 
+/**
+ * @brief 启动视觉闭环拦截
+ * @param CmdObj 启动命令 JSON
+ * @param World 当前场景 World
+ * @return 启动结果 JSON
+ */
 FString UVisualInterceptController::HandleStart(const TSharedPtr<FJsonObject>& CmdObj, UWorld* World)
 {
     EnsureInitialized();
@@ -600,6 +679,12 @@ FString UVisualInterceptController::HandleStart(const TSharedPtr<FJsonObject>& C
     return BuildStartJson();
 }
 
+/**
+ * @brief 执行视觉闭环拦截的一次控制更新
+ * @param CmdObj 当前帧检测结果 JSON
+ * @param World 当前场景 World
+ * @return 控制状态 JSON
+ */
 FString UVisualInterceptController::HandleUpdate(const TSharedPtr<FJsonObject>& CmdObj, UWorld* World)
 {
     EnsureInitialized();
@@ -723,6 +808,12 @@ FString UVisualInterceptController::HandleUpdate(const TSharedPtr<FJsonObject>& 
     return BuildUpdateJson(bValidControl);
 }
 
+/**
+ * @brief 停止视觉闭环拦截
+ * @param CmdObj 停止命令 JSON
+ * @param World 当前场景 World
+ * @return 停止结果 JSON
+ */
 FString UVisualInterceptController::HandleStop(const TSharedPtr<FJsonObject>& CmdObj, UWorld* World)
 {
     EnsureInitialized();
@@ -739,6 +830,7 @@ FString UVisualInterceptController::HandleStop(const TSharedPtr<FJsonObject>& Cm
     return MakeOk(TEXT("visual intercept stopped"));
 }
 
+/** @brief 输出当前视觉闭环拦截内部状态 */
 FString UVisualInterceptController::HandleState() const
 {
     return FString::Printf(
