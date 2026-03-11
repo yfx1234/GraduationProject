@@ -117,19 +117,19 @@ FVector UTurretAiming::GetTargetPosition() const
 bool UTurretAiming::CalculateAimAngles(const FVector& TargetPos, float MuzzleSpeed, float& OutPitch, float& OutYaw)
 {
     if (!OwnerTurret || !OwnerTurret->GunMesh) return false;
+
     FVector TurretPos = OwnerTurret->GetActorLocation();
     FRotator TurretRot = OwnerTurret->GetActorRotation();
-    FVector MuzzleOff = OwnerTurret->MuzzleOffset;
     FVector ToTargetFromTurret = TargetPos - TurretPos;
     FRotator InitialDirection = ToTargetFromTurret.Rotation();
     FRotator LocalDirection = InitialDirection - TurretRot;
-    FRotator EstimatedGunRot = TurretRot;
-    EstimatedGunRot.Yaw += LocalDirection.Yaw + 180.0f;
-    EstimatedGunRot.Pitch = -LocalDirection.Pitch;
-    FVector EstimatedMuzzlePos = TurretPos + EstimatedGunRot.RotateVector(MuzzleOff);
+
+    // Reuse helper to avoid duplicated muzzle-transform logic.
+    FVector EstimatedMuzzlePos = GetMuzzleWorldPosition(LocalDirection.Pitch, LocalDirection.Yaw + 180.0f);
     FVector ToTargetFromMuzzle = TargetPos - EstimatedMuzzlePos;
     FRotator FinalDirection = ToTargetFromMuzzle.Rotation();
     FRotator FinalLocalDirection = FinalDirection - TurretRot;
+
     float RawYaw = FinalLocalDirection.Yaw + 180.0f;
     float RawPitch = FinalLocalDirection.Pitch;
     OutYaw = FMath::Fmod(RawYaw + 180.0f, 360.0f) - 180.0f;
@@ -157,3 +157,6 @@ FVector UTurretAiming::GetMuzzleWorldPosition(float Pitch, float Yaw) const
     FVector MuzzleWorldPos = TurretPos + GunWorldRot.RotateVector(MuzzleOff);
     return MuzzleWorldPos;
 }
+
+
+

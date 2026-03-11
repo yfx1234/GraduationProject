@@ -1,447 +1,149 @@
-# 基于虚幻引擎的无人机视觉追踪与协同仿真系统
+# 基于 Unreal Engine 5.7 的无人机拦截仿真平台
 
-> 毕业设计项目 — 在 Unreal Engine 5.7 中构建的无人机-转台协同仿真平台，集成了基于 YOLO 的目标检测、卡尔曼滤波预测制导和弹道仿真。
+本项目用于毕业设计与算法验证，当前主线目标是构建一个可复现实验平台，完成以下闭环：
 
-## 📋 项目概述
+- 控制闭环：Python 下发命令，UE 执行并回传状态。
+- 感知闭环：UE 输出图像，Python 获取图像并驱动可视化或检测流程。
+- 拦截闭环：目标机轨迹生成，C++ 制导解算，拦截机持续追踪。
 
-本项目实现了一个完整的无人机视觉追踪与武器制导仿真系统，主要包含以下功能：
+## 1. 当前架构
 
-- **无人机飞行仿真**：基于 PID 控制的六自由度无人机飞行模型，支持起降、悬停、航点飞行和速度控制
-- **转台武器系统**：可旋转的武器平台，支持俯仰/偏航角控制、目标跟踪和射击，内置弹道计算模块
-- **YOLO 目标检测**：基于 YOLOv11 的实时无人机检测，从转台摄像头画面中识别和定位目标
-- **多模式制导算法**：支持直接瞄准、比例导引和卡尔曼预测制导三种瞄准方法
-- **TCP 通信架构**：Python 客户端通过 JSON-TCP 协议与 UE 引擎实时通信
-- **自动化数据管线**：一键采集训练数据并自动标注，支持断点续训
+```mermaid
+flowchart LR
+  Py[Python Scripts] --> Lib[PythonClient/gradsim]
+  Lib --> TCP[TCP Socket 9000]
+  TCP --> GI[USimGameInstance]
+  GI --> Router[UCommandRouter]
 
-## 🏗️ 系统架构
+  Router --> Drone[UDroneCommandHandler]
+  Router --> Turret[UTurretCommandHandler]
+  Router --> Guidance[UGuidanceCommandHandler]
+  Router --> Core[Clock / Sensor / Recorder / Image]
 
-## 📁 目录结构
-
+  Drone --> DronePawn[ADronePawn + UDroneMovementComponent]
+  Turret --> TurretPawn[ATurretPawn + UTurretAiming]
+  Guidance --> GuideCore[GuidanceMethods + UKalmanPredictor + UVisualInterceptController]
 ```
+
+## 2. 当前有效目录
+
+```text
 GraduationProject/
-├── Source/GraduationProject/          # C++ 源码
-│   ├── Core/                          # 核心框架
-│   │   ├── CameraPawn.*               #   自由视角相机
-│   │   ├── SimGameMode.*              #   游戏模式 & Agent 管理
-│   │   ├── Network/                   #   TCP 服务器 & JSON 命令路由
-│   │   ├── Controller/                #   玩家控制器
-│   │   └── Manager/                   #   Agent 注册管理
-│   ├── Drone/                         # 无人机模块
-│   │   ├── DronePawn.*                #   无人机 Actor
-│   │   ├── DroneMovementComponent.*   #   飞行物理 (PID 控制)
-│   │   ├── DroneParameters.h          #   物理参数配置
-│   │   ├── DroneState.h               #   状态数据结构
-│   │   ├── DroneApi.*                 #   API 接口层
-│   │   └── DroneCommandHandler.*      #   命令处理器
-│   ├── Turret/                        # 转台武器模块
-│   │   ├── TurretPawn.*               #   转台 Actor (含摄像头)
-│   │   ├── TurretAiming.*             #   瞄准计算组件
-│   │   ├── TurretCommandHandler.*     #   命令处理器
-│   │   ├── BulletActor.*              #   子弹 Actor
-│   │   └── BC_*.hpp                   #   弹道计算库
-│   ├── Guidance/                      # 制导模块
-│   │   ├── IGuidanceMethod.h          #   制导方法接口
-│   │   ├── GuidanceMethods.*          #   三种制导实现
-│   │   ├── ITargetPredictor.h         #   预测器接口
-│   │   ├── KalmanPredictor.*          #   卡尔曼滤波器
-│   │   └── GuidanceCommandHandler.*   #   制导命令处理
-│   ├── UI/                            # HUD 界面
-│   └── Vision/                        # 视觉模块
-│
-├── PythonClient/                      # Python 客户端
-│   ├── sim_client.py                  #   TCP 通信封装
-│   ├── yolo_guidance.py               #   YOLO 视觉制导主程序
-│   ├── collect_data.py                #   自动数据采集 & 标注
-│   ├── train_yolo.py                  #   YOLO 模型训练
-│   └── YOLO/                          #   YOLO 相关资源
-│       ├── ultralytics/               #     ultralytics 库源码
-│       ├── weights/                   #     预训练权重 (yolo26n*.pt)
-│       ├── dataset/                   #     训练数据集
-│       │   ├── images/train/          #       训练图片
-│       │   ├── labels/train/          #       YOLO 标签
-│       │   └── data.yaml              #       数据集配置
-│       └── runs/                      #     训练输出
-│           └── detect/
-│               └── drone_detect*/weights/best.pt
+├── Config/
+├── Content/
+├── Document/
+├── PythonClient/
+│   ├── gradsim/                     # 复用型 TCP 客户端库
+│   ├── Drone/
+│   │   ├── auto_spawn_visual_intercept.py
+│   │   └── README.md
+│   ├── Turret/
+│   │   ├── auto_spawn_visual_intercept.py   # 兼容包装入口
+│   │   └── README.md
+│   ├── YOLO/                        # 第三方和训练资产，本仓库默认忽略
+│   └── README.md
+├── Source/GraduationProject/
+│   ├── Core/
+│   ├── Drone/
+│   ├── Guidance/
+│   ├── Turret/
+│   ├── Vision/
+│   └── UI/
+├── GraduationProject.uproject
+└── README.md
 ```
 
-## 🚀 快速开始
+## 3. Python 侧主入口
 
-### 环境要求
+- 主脚本：`PythonClient/Drone/auto_spawn_visual_intercept.py`
+- 兼容入口：`PythonClient/Turret/auto_spawn_visual_intercept.py`
+- 通用客户端库：`PythonClient/gradsim/client.py`
 
-- **Unreal Engine** 5.7
-- **Visual Studio** 2022
-- **Python** 3.11（Anaconda 环境）
+当前推荐只围绕 `PythonClient/gradsim` 和 `PythonClient/Drone` 做新开发，`PythonClient/Turret` 仅保留兼容入口，避免旧命令失效。
 
-### Python 环境配置
+## 4. 通信协议概览
 
-使用 Anaconda 创建独立环境：
+### 4.1 通用消息
+
+- `add_actor`：动态生成智能体。
+- `remove_actor`：移除智能体。
+- `call_actor`：对指定 Actor 调用通用函数。
+
+### 4.2 业务命令
+
+- 系统：`ping`、`sim_pause`、`sim_resume`、`sim_reset`、`sim_step`
+- 无人机：`call_drone`、`get_drone_state`
+- 转台：`call_turret`、`get_turret_state`
+- 制导：`call_guidance`、`get_guidance_state`
+- 图像：`get_image`
+
+### 4.3 当前 Python 封装
+
+`PythonClient/gradsim/client.py` 已对当前主流程封装了以下常用接口：
+
+- Actor 管理：`add_actor`、`remove_actor`、`call_actor`
+- 无人机：`drone_takeoff`、`drone_hover`、`drone_move_to`、`drone_move_by_velocity`、`drone_state`
+- 转台：`turret_set_angles`、`turret_fire`、`turret_start_tracking`、`turret_state`
+- 制导：`guidance_reset`、`guidance_auto_intercept`、`guidance_state`
+- 图像：`get_image_raw`、`get_image_numpy`
+
+## 5. 当前拦截流程
+
+`PythonClient/Drone/auto_spawn_visual_intercept.py` 的流程如下：
+
+1. 通过 `add_actor` 生成拦截机和目标机。
+2. 等待两机起飞至设定高度。
+3. 目标机按照稳定轨迹参考飞行。
+4. 每个控制周期调用一次 C++ `auto_intercept`。
+5. 可选拉取拦截机图像，在独立窗口显示瞄准和距离信息。
+6. 捕获、超时或人工退出后执行清理。
+
+该脚本当前保持“单 TCP 连接串行发送”的策略，避免目标控制和拦截控制的响应在同一连接上交错。
+
+## 6. 运行方式
+
+### 6.1 UE 端
+
+1. 打开 `GraduationProject.uproject`。
+2. 编译 `GraduationProjectEditor Win64 Development`。
+3. 进入 PIE，确认 TCP 服务监听 `127.0.0.1:9000`。
+
+构建示例：
+
+```powershell
+& 'D:\Epic Games\UE_5.7\Engine\Build\BatchFiles\Build.bat' \
+  GraduationProjectEditor Win64 Development \
+  -Project='D:\Xstarlab\UEProjects\GraduationProject\GraduationProject\GraduationProject.uproject' \
+  -WaitMutex -FromMsBuild -architecture=x64
+```
+
+### 6.2 Python 端
+
+主入口：
 
 ```bash
-conda create -n yolo python=3.11
-conda activate yolo
+python PythonClient/Drone/auto_spawn_visual_intercept.py --show
 ```
 
-**核心依赖：**
-
-```
-torch              2.5.0+cu118
-torchvision        0.20.0+cu118
-torchaudio         2.5.0+cu118
-ultralytics        8.4.9          # 从本地源码安装
-numpy              2.3.5
-opencv-python      4.13.0.90
-matplotlib         3.10.8
-pandas             3.0.1
-scipy              1.17.0
-PyYAML             6.0.3
-requests           2.32.5
-pillow             12.0.0
-```
-
-**外部资源：**
-
-- ultralytics 源码：https://github.com/ultralytics/ultralytics.git
-- YOLO26 模型权重：https://github.com/ultralytics/assets/releases
-
-> **环境摘要：** `PyTorch 2.5.0` + `CUDA 11.8` + `ultralytics 8.4.9`（本地源码）
-
-### 运行步骤
-
-1. 用 UE 5.7 打开 `GraduationProject.uproject`，编译并启动 PIE
-2. 在终端中运行 YOLO 视觉制导：`python yolo_guidance.py`
-
-**快捷键：**
-
-| 按键            | 功能                                              |
-| --------------- | ------------------------------------------------- |
-| `q`             | 退出                                              |
-| `f`             | 手动开火                                          |
-| `m`             | 切换制导模式 (predictive → proportional → direct) |
-| `1` / `2` / `3` | 切换无人机飞行模式 (直线 / 曲线 / 规避)           |
-| `p`             | 显示/隐藏预测线                                   |
-| `t`             | 开关跟踪                                          |
-
-## 🎯 制导方法
-
-### Direct Aiming（直接瞄准）
-
-直接对准目标当前位置。最简单但因弹丸飞行时间会导致打在目标后方。
-
-### Proportional Navigation（比例导引）
-
-利用视线角速率（LOS Rate）引导转台旋转，使弹丸飞向目标未来位置。对匀速目标效果较好。
-
-### Predictive Guidance（卡尔曼预测制导）⭐
-
-核心制导算法。使用 6 维卡尔曼滤波器估计目标位置和速度，通过迭代收敛计算提前量，预测弹丸飞行时间内目标的未来位置。对高速机动目标效果最佳。
-
-## 📊 数据采集与训练
-
-### 采集训练数据
+兼容入口：
 
 ```bash
-python collect_data.py --num 500        # 采集500个数据
+python PythonClient/Turret/auto_spawn_visual_intercept.py --show
 ```
 
-### 训练 / 微调模型
+## 7. 常见问题
 
-```bash
-python train_yolo.py                    # 自动加载上次的 best.pt 继续训练
-python train_yolo.py --model yolo11n.pt # 从官方预训练权重重新训练
-python train_yolo.py --epochs 150       # 指定训练轮数
-```
+- 无法连接：确认 UE 已进入 PIE，且端口 `9000` 已监听。
+- 看不到图像窗口：检查 `opencv-python` 是否已安装。
+- `add_actor` 失败：先确认 Blueprint 路径与当前工程资源一致，再检查 UE 返回 JSON 是否完整。
+- 目标机不稳定：优先检查目标速度、转弯角速度、单位换算是否一致。
 
----
+## 8. 文档入口
 
-## 🔧 SimClient API 参考
+- 详细实现说明：[Document/项目实现流程与方法详解.md](Document/项目实现流程与方法详解.md)
+- 结构整理说明：`Document/代码结构与文件整理优化方案_审阅版.md`
+- 视觉拦截进度：`Document/视觉拦截_开发进度.md`
 
-Python 客户端通过 TCP（默认端口 `9000`）以 JSON 格式与 UE 引擎实时通信。
-所有接口封装在 `SimClient` 类中，每个方法对应一条 TCP JSON 消息。
+## 9. 当前工作区说明
 
-```python
-from sim_client import SimClient
-client = SimClient(host="127.0.0.1", port=9000, timeout=10.0)
-```
-
----
-
-### 基础命令
-
-#### `ping()`
-
-测试连接是否正常。
-
-```json
-{ "ping": {} }
-```
-
-#### `get_agents()` → `List[str]`
-
-获取场景中所有 Agent 列表。
-
-```json
-{ "get_agent_list": {} }
-```
-
-#### `sim_pause()` / `sim_resume()` / `sim_reset()`
-
-暂停 / 恢复 / 重置仿真。
-
-```json
-{"sim_pause": {}}
-{"sim_resume": {}}
-{"sim_reset": {}}
-```
-
----
-
-### 无人机控制
-
-#### `drone_takeoff(altitude=3.0)`
-
-起飞到指定高度（米）。
-
-```json
-{ "call_drone": { "function": "takeoff", "altitude": 5.0 } }
-```
-
-#### `drone_land()`
-
-降落到地面。
-
-```json
-{ "call_drone": { "function": "land" } }
-```
-
-#### `drone_hover()`
-
-原地悬停。
-
-```json
-{ "call_drone": { "function": "hover" } }
-```
-
-#### `drone_move_to(x, y, z, speed=2.0)`
-
-飞往指定世界坐标（米），`speed` 为飞行速度（m/s）。
-
-```json
-{
-  "call_drone": {
-    "function": "move_to_position",
-    "x": 10,
-    "y": 20,
-    "z": 5,
-    "speed": 3.0
-  }
-}
-```
-
-#### `drone_move_by_velocity(vx, vy, vz)`
-
-以指定速度向量持续飞行（m/s）。
-
-```json
-{
-  "call_drone": { "function": "move_by_velocity", "vx": 2.0, "vy": 0, "vz": 0 }
-}
-```
-
-#### `drone_state(drone_id="drone_0")` → `dict`
-
-获取无人机完整状态（位置、速度、姿态等）。
-
-```json
-{ "get_drone_state": { "id": "drone_0" } }
-```
-
-#### `drone_position(drone_id="drone_0")` → `np.ndarray`
-
-获取无人机位置 `[x, y, z]`，封装自 `drone_state()`。
-
----
-
-### 转台控制
-
-#### `turret_set_angles(pitch, yaw, turret_id="turret_0")`
-
-直接设置转台俯仰角和偏航角（度）。
-
-```json
-{
-  "call_turret": {
-    "function": "set_angles",
-    "id": "turret_0",
-    "pitch": 10.0,
-    "yaw": 45.0
-  }
-}
-```
-
-#### `turret_fire(speed=400.0, turret_id="turret_0")`
-
-以指定炮口初速（m/s）开火。
-
-```json
-{ "call_turret": { "function": "fire", "id": "turret_0", "speed": 400.0 } }
-```
-
-#### `turret_start_tracking(target_id, turret_id="turret_0")`
-
-开始自动跟踪指定目标。
-
-```json
-{
-  "call_turret": {
-    "function": "start_tracking",
-    "id": "turret_0",
-    "target_id": "drone_0"
-  }
-}
-```
-
-#### `turret_stop_tracking(turret_id="turret_0")`
-
-停止自动跟踪。
-
-```json
-{ "call_turret": { "function": "stop_tracking", "id": "turret_0" } }
-```
-
-#### `turret_state(turret_id="turret_0")` → `dict`
-
-获取转台状态（当前角度、位置等）。
-
-```json
-{ "get_turret_state": { "id": "turret_0" } }
-```
-
-#### `turret_reset(turret_id="turret_0")`
-
-重置转台到初始状态。
-
-```json
-{ "call_turret": { "function": "reset", "id": "turret_0" } }
-```
-
----
-
-### 制导系统
-
-#### `guidance_set_method(method="predictive")`
-
-切换制导算法。可选值：`"direct"` / `"proportional"` / `"predictive"`。
-
-```json
-{ "call_guidance": { "function": "set_method", "method": "predictive" } }
-```
-
-#### ⭐ `guidance_auto_engage(turret_id, target_id, muzzle_speed=400.0, fire=False, dt=0.05)`
-
-**核心接口**。一次调用完成完整制导流程：  
-读取目标真实坐标 → 更新卡尔曼滤波器 → 计算瞄准角度 → 设置转台。  
-`dt` 参数应传入**真实的帧间时间差**，否则卡尔曼测速会出错。
-
-```json
-{
-  "call_guidance": {
-    "function": "auto_engage",
-    "turret_id": "turret_0",
-    "target_id": "drone_0",
-    "muzzle_speed": 400.0,
-    "fire": false,
-    "dt": 0.033
-  }
-}
-```
-
-#### `guidance_compute_aim(turret_id, muzzle_speed=400.0)` → `dict`
-
-仅计算瞄准角度（不设置转台），返回 `{pitch, yaw}`。
-
-```json
-{
-  "call_guidance": {
-    "function": "compute_aim",
-    "turret_id": "turret_0",
-    "muzzle_speed": 400.0
-  }
-}
-```
-
-#### `guidance_update_target(x, y, z, dt=0.1)`
-
-手动向卡尔曼滤波器输入目标坐标。
-
-```json
-{
-  "call_guidance": {
-    "function": "update_target",
-    "x": 100,
-    "y": 200,
-    "z": 500,
-    "dt": 0.05
-  }
-}
-```
-
-#### `guidance_set_kalman(process_noise=1.0, measurement_noise=0.5)`
-
-动态调整卡尔曼滤波器的过程噪声（Q）和测量噪声（R）。
-
-```json
-{
-  "call_guidance": {
-    "function": "set_kalman_params",
-    "process_noise": 100.0,
-    "measurement_noise": 0.01
-  }
-}
-```
-
-#### `guidance_state()` → `dict`
-
-获取当前制导系统状态。
-
-```json
-{ "get_guidance_state": {} }
-```
-
-#### `guidance_reset()`
-
-重置制导系统，清空卡尔曼滤波器状态。
-
-```json
-{ "call_guidance": { "function": "reset" } }
-```
-
----
-
-### 图像获取
-
-#### `get_image_numpy()` → `Optional[np.ndarray]`
-
-获取转台摄像头画面，返回 OpenCV BGR 格式的 numpy 数组。
-
-#### `get_image_base64()` → `Optional[str]`
-
-获取 Base64 编码的 JPEG 图像字符串。
-
-#### `get_image_bytes()` → `Optional[bytes]`
-
-获取 JPEG 图像原始字节。
-
-以上三个方法均通过同一 TCP 消息获取：
-
-```json
-{ "get_image": {} }
-```
-
-返回值中除图像数据外，还包含相机参数元数据（`camera_pos`、`camera_rot`、`fov`、`width`、`height`），可用于 3D→2D 投影计算。
-
----
-
-## 📄 许可证
-
-本项目为毕业设计作品，仅供学术研究使用。
+当前仓库为进行中工作区，存在较多未提交改动。阅读代码时，优先以 `PythonClient/gradsim`、`PythonClient/Drone` 和 `Source/GraduationProject` 中的当前实现为准，不以旧脚本名称或历史目录说明为准。

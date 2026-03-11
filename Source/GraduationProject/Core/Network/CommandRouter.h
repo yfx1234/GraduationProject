@@ -3,26 +3,29 @@
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
 #include "Dom/JsonObject.h"
+#include "FCommandHandle.h"
 #include "CommandRouter.generated.h"
 
 class UDroneCommandHandler;
 class UTurretCommandHandler;
 class UGuidanceCommandHandler;
 
+
 /**
- * TCP 命令路由器
- * 作用：
- * 1. 解析 JSON 字符串
- * 2. 根据 JSON 字段名路由到对应的处理器
- * 3. 返回 JSON 格式的响应字符串
- * 路由规则（按 JSON 字段匹配）：
- * - "ping" → HandlePing()
- * - "sim_pause/sim_resume/sim_reset" → 仿真控制
- * - "get_agent_list" → 获取智能体列表
- * - "get_image" → 获取摄像头图像（支持 Turret 和 Drone）
- * - "call_drone/get_drone_state" → DroneCommandHandler
- * - "call_turret/get_turret_state" → TurretCommandHandler
- * - "call_guidance/get_guidance_state" → GuidanceCommandHandler
+ * TCP 鍛戒护璺敱鍣?
+ * 浣滅敤锛?
+ * 1. 瑙ｆ瀽 JSON 瀛楃涓?
+ * 2. 鏍规嵁 JSON 瀛楁鍚嶈矾鐢卞埌瀵瑰簲鐨勫鐞嗗櫒
+ * 3. 杩斿洖 JSON 鏍煎紡鐨勫搷搴斿瓧绗︿覆
+ * 璺敱瑙勫垯锛堟寜 JSON 瀛楁鍖归厤锛夛細
+ * - "ping" 鈫?HandlePing()
+ * - "sim_pause/sim_resume/sim_reset" 鈫?浠跨湡鎺у埗
+ * - "get_agent_list" 鈫?鑾峰彇鏅鸿兘浣撳垪琛?
+ * - "get_image" 鈫?鑾峰彇鎽勫儚澶村浘鍍忥紙鏀寔 Turret 鍜?Drone锛?
+ * - "call_drone/get_drone_state" 鈫?DroneCommandHandler
+ * - "call_turret/get_turret_state" 鈫?TurretCommandHandler
+ * - "call_guidance/get_guidance_state" 鈫?GuidanceCommandHandler
+ * - 鏂板锛?add_actor", "remove_actor", "call_actor" 鈫?FCommandHandle
  */
 UCLASS()
 class GRADUATIONPROJECT_API UCommandRouter : public UObject
@@ -31,78 +34,102 @@ class GRADUATIONPROJECT_API UCommandRouter : public UObject
 
 public:
     /**
-     * @brief 处理 TCP 命令
-     * @param JsonString 收到的 JSON 字符串
-     * @param World 当前 UWorld 指针
-     * @return 响应 JSON 字符串，包含 status 和 message 字段
+     * @brief 澶勭悊 TCP 鍛戒护
+     * @param JsonString 鏀跺埌鐨?JSON 瀛楃涓?
+     * @param World 褰撳墠 UWorld 鎸囬拡
+     * @return 鍝嶅簲 JSON 瀛楃涓诧紝鍖呭惈 status 鍜?message 瀛楁
      */
     FString HandleCommand(const FString& JsonString, UWorld* World);
 
 private:
     /**
-     * @brief 处理 ping 命令，返回 pong 响应
-     * @return JSON 响应 {"status":"ok","message":"pong"}
+     * @brief 澶勭悊 ping 鍛戒护锛岃繑鍥?pong 鍝嶅簲
+     * @return JSON 鍝嶅簲 {"status":"ok","message":"pong"}
      */
     FString HandlePing();
 
     /**
-     * @brief 暂停仿真
-     * @param World 当前 World
-     * @return JSON 响应
+     * @brief 鏆傚仠浠跨湡
+     * @param World 褰撳墠 World
+     * @return JSON 鍝嶅簲
      */
     FString HandleSimPause(UWorld* World);
 
     /**
-     * @brief 恢复仿真
-     * @param World 当前 World
-     * @return JSON 响应
+     * @brief 鎭㈠浠跨湡
+     * @param World 褰撳墠 World
+     * @return JSON 鍝嶅簲
      */
     FString HandleSimResume(UWorld* World);
 
     /**
-     * @brief 重置仿真
-     * @param World 当前 World
-     * @return JSON 响应
+     * @brief 閲嶇疆浠跨湡
+     * @param World 褰撳墠 World
+     * @return JSON 鍝嶅簲
      */
     FString HandleSimReset(UWorld* World);
+    FString HandleSimGetTime(UWorld* World);
+    FString HandleSimSetTimeScale(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World);
+    FString HandleSimStep(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World);
 
     /**
-     * @brief 获取已注册智能体列表
-     * @return JSON 响应，包含 agents 数组和 count 字段
+     * @brief 鑾峰彇宸叉敞鍐屾櫤鑳戒綋鍒楄〃
+     * @return JSON 鍝嶅簲锛屽寘鍚?agents 鏁扮粍鍜?count 瀛楁
      */
     FString HandleGetAgentList();
 
+    FString HandleGetCommandStatus(const TSharedPtr<FJsonObject>& JsonObject);
+    FString HandleCancelCommand(const TSharedPtr<FJsonObject>& JsonObject);
+    FString HandleGetSensorData(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World);
+    FString HandleRecorderStart(const TSharedPtr<FJsonObject>& JsonObject);
+    FString HandleRecorderStop();
+    FString HandleRecorderStatus();
+    FString HandleRecorderRecordState(UWorld* World);
+
     /**
-     * @brief 获取摄像头图像（支持 Turret 和 Drone）
-     * @param JsonObject 已解析的 JSON 对象，可包含 get_image.id 字段指定 Agent
-     * @param World 当前 World
-     * @return JSON 响应，包含 data(Base64)、camera_pos、camera_rot、fov 等字段
+     * @brief 鑾峰彇鎽勫儚澶村浘鍍忥紙鏀寔 Turret 鍜?Drone锛?
+     * @param JsonObject 宸茶В鏋愮殑 JSON 瀵硅薄锛屽彲鍖呭惈 get_image.id 瀛楁鎸囧畾 Agent
+     * @param World 褰撳墠 World
+     * @return JSON 鍝嶅簲锛屽寘鍚?data(Base64)銆乧amera_pos銆乧amera_rot銆乫ov 绛夊瓧娈?
      */
     FString HandleGetImage(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World);
 
     /**
-     * @brief 构造错误响应 JSON
-     * @param Error 错误信息
+     * @brief 鏋勯€犻敊璇搷搴?JSON
+     * @param Error 閿欒淇℃伅
      * @return {"status":"error","message":"..."}
      */
     FString MakeErrorResponse(const FString& Error);
 
     /**
-     * @brief 构造成功响应 JSON
-     * @param Message 成功信息，默认 "ok"
+     * @brief 鏋勯€犳垚鍔熷搷搴?JSON
+     * @param Message 鎴愬姛淇℃伅锛岄粯璁?"ok"
      * @return {"status":"ok","message":"..."}
      */
     FString MakeOkResponse(const FString& Message = TEXT("ok"));
 
-    /** @brief 无人机命令处理器 */
+    /** @brief 鏂扮殑閫氱敤鍛戒护鎵ц鍣?*/
+    TUniquePtr<FCommandHandle> CommandHandle;
+
+    /** @brief 鏃犱汉鏈哄懡浠ゅ鐞嗗櫒 */
     UPROPERTY()
     UDroneCommandHandler* DroneHandler = nullptr;
 
-    /** @brief 转台命令处理器 */
+    /** @brief 杞彴鍛戒护澶勭悊鍣?*/
     UPROPERTY()
     UTurretCommandHandler* TurretHandler = nullptr;
 
-    /** @brief 制导命令处理器 */
+    /** @brief 鍒跺鍛戒护澶勭悊鍣?*/
     UPROPERTY()
     UGuidanceCommandHandler* GuidanceHandler = nullptr;
 };
+
+
+
+
+
+
+
+
+
+

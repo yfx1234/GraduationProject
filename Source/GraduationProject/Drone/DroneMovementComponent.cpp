@@ -38,22 +38,25 @@ void UDroneMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType
     if (!bInitialized) return;
     if (CurrentControlMode == EDroneControlMode::Idle) return;
 
-    // --- AirSim 风格：控制器和物理在同一循环中以相同频率更新 ---
-    // AirSim: PhysicsBody::update() → updateSensorsAndController() → updatePhysics()
-    // 控制器每个物理子步都更新，产生平滑的电机命令
-    double SubStepTime = Parameters.TimeStep;
-    int32 NumSubSteps = FMath::Max(1, FMath::CeilToInt(DeltaTime / SubStepTime));
-    SubStepTime = DeltaTime / NumSubSteps;
+    const double FixedStep = FMath::Max(0.0005, static_cast<double>(Parameters.TimeStep));
+    const int32 MaxSubSteps = FMath::Max(1, MaxSubStepsPerTick);
+
+    // 固定步长积分：累计真实帧时间，按 TimeStep 离散推进。
+    FixedStepAccumulator = FMath::Clamp(FixedStepAccumulator + static_cast<double>(DeltaTime), 0.0, FixedStep * MaxSubSteps);
 
     FDroneState BackupState = CurrentState;
-    for (int32 i = 0; i < NumSubSteps; ++i)
+    int32 ExecutedSteps = 0;
+    while (FixedStepAccumulator >= FixedStep && ExecutedSteps < MaxSubSteps)
     {
         // 控制更新（每个子步都运行，与物理同频）
-        ControlUpdate(SubStepTime);
+        ControlUpdate(FixedStep);
 
         // 物理更新
-        VerletUpdate(SubStepTime);
+        VerletUpdate(FixedStep);
         CheckGroundCollision(InitialGroundZ);
+
+        FixedStepAccumulator -= FixedStep;
+        ++ExecutedSteps;
 
         // NaN 保护
         if (CurrentState.HasNaN())
@@ -65,10 +68,10 @@ void UDroneMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType
             CurrentState.AngYawRate = 0.0;
             PrevLinearAcceleration = FVector::ZeroVector;
             PrevAngularAcceleration = FVector::ZeroVector;
+            FixedStepAccumulator = 0.0;
             break;
         }
     }
-
     // 速度裁剪防发散
     CurrentState.ClampVelocities(50.0, 50.0);
 }
@@ -84,6 +87,7 @@ void UDroneMovementComponent::SetParameters(const FDroneParameters& NewParameter
     Parameters.InitializeComputed();
     ComputeControlAllocation();
     InitializeControllers();
+    FixedStepAccumulator = 0.0;
 }
 
 /**
@@ -100,7 +104,9 @@ void UDroneMovementComponent::InitializeControllers()
     // ── 位置环 PD ── Kp=1.0, Kd=0.3
     float PosPGain = 1.0f;
     float PosDGain = 0.3f;
-    float VelMaxLimit = 2.0f;
+    PositionAxisSpeedLimit = DefaultPositionSpeedLimit;
+    TargetPositionSpeedLimit = PositionAxisSpeedLimit;
+    float VelMaxLimit = static_cast<float>(PositionAxisSpeedLimit);
     PxController = NewObject<UPDController>(this);
     PxController->Initialize(PosPGain, PosDGain, 0.1, VelMaxLimit, Ts);
     PyController = NewObject<UPDController>(this);
@@ -218,7 +224,24 @@ void UDroneMovementComponent::ControlUpdate(double DeltaTime)
             double DirX = TargetPosition.X - Pos.X;
             double DirY = TargetPosition.Y - Pos.Y;
             double DirMag = FMath::Sqrt(DirX * DirX + DirY * DirY);
-            if (DirMag > YawSpeedThreshold)
+            double CurrentYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
+
+            if (YawMode == EDroneYawMode::Angle)
+            {
+                DesiredYaw = CommandedYaw;
+                LockedYaw = DesiredYaw;
+                bYawInitialized = true;
+            }
+            else if (YawMode == EDroneYawMode::Hold || DrivetrainMode == EDroneDrivetrainMode::MaxDegreeOfFreedom)
+            {
+                if (!bYawInitialized)
+                {
+                    LockedYaw = CurrentYaw;
+                    bYawInitialized = true;
+                }
+                DesiredYaw = LockedYaw;
+            }
+            else if (DirMag > YawSpeedThreshold)
             {
                 DesiredYaw = FMath::Atan2(DirY, DirX) + FMath::DegreesToRadians(YawOffset);
                 LockedYaw = DesiredYaw;
@@ -230,7 +253,7 @@ void UDroneMovementComponent::ControlUpdate(double DeltaTime)
             }
             else
             {
-                DesiredYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
+                DesiredYaw = CurrentYaw;
             }
 
             FVector VelCmd = PositionLoop(TargetPosition);
@@ -243,7 +266,24 @@ void UDroneMovementComponent::ControlUpdate(double DeltaTime)
         {
             // 计算自动偏航：从目标速度方向（稳定，不产生反馈环）
             double VelMag = FMath::Sqrt(TargetVelocity.X * TargetVelocity.X + TargetVelocity.Y * TargetVelocity.Y);
-            if (VelMag > YawSpeedThreshold)
+            double CurrentYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
+
+            if (YawMode == EDroneYawMode::Angle)
+            {
+                DesiredYaw = CommandedYaw;
+                LockedYaw = DesiredYaw;
+                bYawInitialized = true;
+            }
+            else if (YawMode == EDroneYawMode::Hold || DrivetrainMode == EDroneDrivetrainMode::MaxDegreeOfFreedom)
+            {
+                if (!bYawInitialized)
+                {
+                    LockedYaw = CurrentYaw;
+                    bYawInitialized = true;
+                }
+                DesiredYaw = LockedYaw;
+            }
+            else if (VelMag > YawSpeedThreshold)
             {
                 DesiredYaw = FMath::Atan2(TargetVelocity.Y, TargetVelocity.X) + FMath::DegreesToRadians(YawOffset);
                 LockedYaw = DesiredYaw;
@@ -255,7 +295,7 @@ void UDroneMovementComponent::ControlUpdate(double DeltaTime)
             }
             else
             {
-                DesiredYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
+                DesiredYaw = CurrentYaw;
             }
 
             FVector AccCmd = VelocityLoop(TargetVelocity, ThrustCommand);
@@ -562,7 +602,13 @@ FVector UDroneMovementComponent::PositionLoop(const FVector& PositionCommand)
     double VxCmd = PxController ? PxController->Update(PositionCommand.X, Pos.X) : 0.0;
     double VyCmd = PyController ? PyController->Update(PositionCommand.Y, Pos.Y) : 0.0;
     double VzCmd = PzController ? PzController->Update(PositionCommand.Z, Pos.Z) : 0.0;
-    return FVector(VxCmd, VyCmd, VzCmd);
+    FVector VelocityCommand(VxCmd, VyCmd, VzCmd);
+    const double MaxSpeed = FMath::Max(0.1, TargetPositionSpeedLimit);
+    if (VelocityCommand.SizeSquared() > MaxSpeed * MaxSpeed)
+    {
+        VelocityCommand = VelocityCommand.GetSafeNormal() * MaxSpeed;
+    }
+    return VelocityCommand;
 }
 
 /**
@@ -667,9 +713,11 @@ void UDroneMovementComponent::SetInitialState(const FDroneState& InitialState)
     // 清零加速度历史
     PrevLinearAcceleration = FVector::ZeroVector;
     PrevAngularAcceleration = FVector::ZeroVector;
+    FixedStepAccumulator = 0.0;
 
     // 重置自动偏航状态
     LockedYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
+    CommandedYaw = LockedYaw;
     bYawInitialized = false;
 
     UE_LOG(LogTemp, Log, TEXT("[DroneMovement] InitialState set, HoverSpeed=%.1f rad/s, GroundZ=%.2f, Grounded=true"),
@@ -684,13 +732,32 @@ void UDroneMovementComponent::SetControlMode(EDroneControlMode NewMode)
 {
     CurrentControlMode = NewMode;
     ResetAllControllers();
+    FixedStepAccumulator = 0.0;
 }
 
 /** @brief 设置原始控制命令 */
 void UDroneMovementComponent::SetControlCommand(const TArray<double>& Command) { ControlCommands = Command; }
 
 /** @brief 设置目标位置 */
-void UDroneMovementComponent::SetTargetPosition(const FVector& TargetPos) { TargetPosition = TargetPos; }
+void UDroneMovementComponent::SetTargetPosition(const FVector& TargetPos, float Speed)
+{
+    TargetPosition = TargetPos;
+
+    if (Speed > KINDA_SMALL_NUMBER)
+    {
+        PositionAxisSpeedLimit = FMath::Max(0.1, static_cast<double>(Speed));
+    }
+    else
+    {
+        PositionAxisSpeedLimit = DefaultPositionSpeedLimit;
+    }
+
+    TargetPositionSpeedLimit = PositionAxisSpeedLimit;
+
+    if (PxController) PxController->SetParameters(PxController->Kp, PxController->Kd, PxController->DiffFilterTau, PositionAxisSpeedLimit);
+    if (PyController) PyController->SetParameters(PyController->Kp, PyController->Kd, PyController->DiffFilterTau, PositionAxisSpeedLimit);
+    if (PzController) PzController->SetParameters(PzController->Kp, PzController->Kd, PzController->DiffFilterTau, PositionAxisSpeedLimit);
+}
 
 /** @brief 设置目标速度 */
 void UDroneMovementComponent::SetTargetVelocity(const FVector& TargetVel) { TargetVelocity = TargetVel; }
@@ -714,9 +781,11 @@ void UDroneMovementComponent::ResetState(const FDroneState& NewState)
 {
     CurrentState = NewState;
     ResetAllControllers();
+    FixedStepAccumulator = 0.0;
 
     // 重置自动偏航状态
     LockedYaw = FMath::DegreesToRadians(NewState.GetRotator().Yaw);
+    CommandedYaw = LockedYaw;
     bYawInitialized = false;
 }
 
@@ -744,9 +813,9 @@ void UDroneMovementComponent::ResetAllControllers()
  */
 void UDroneMovementComponent::SetPositionGains(float Kp, float Kd)
 {
-    if (PxController) PxController->SetParameters(Kp, Kd, 0.0, 2.0);
-    if (PyController) PyController->SetParameters(Kp, Kd, 0.0, 2.0);
-    if (PzController) PzController->SetParameters(Kp, Kd, 0.0, 2.0);
+    if (PxController) PxController->SetParameters(Kp, Kd, 0.0, PositionAxisSpeedLimit);
+    if (PyController) PyController->SetParameters(Kp, Kd, 0.0, PositionAxisSpeedLimit);
+    if (PzController) PzController->SetParameters(Kp, Kd, 0.0, PositionAxisSpeedLimit);
 }
 
 /**
@@ -783,6 +852,24 @@ void UDroneMovementComponent::SetAngleRateGains(float Kp)
     if (RollRateController) RollRateController->SetParameters(Kp, 0, 0, 0.05, 1.0);
     if (PitchRateController) PitchRateController->SetParameters(Kp, 0, 0, 0.05, 1.0);
     if (YawRateController) YawRateController->SetParameters(Kp * 0.5f, 0, 0, 0.05, 0.5);
+}
+
+void UDroneMovementComponent::SetHeadingControl(EDroneYawMode NewYawMode, EDroneDrivetrainMode NewDrivetrain, float YawDeg)
+{
+    YawMode = NewYawMode;
+    DrivetrainMode = NewDrivetrain;
+
+    if (YawMode == EDroneYawMode::Angle)
+    {
+        CommandedYaw = FMath::DegreesToRadians(YawDeg);
+        LockedYaw = CommandedYaw;
+        bYawInitialized = true;
+    }
+    else if (YawMode == EDroneYawMode::Hold)
+    {
+        LockedYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
+        bYawInitialized = true;
+    }
 }
 
 /**

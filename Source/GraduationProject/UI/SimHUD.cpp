@@ -1,111 +1,761 @@
 #include "SimHUD.h"
+#include "AgentListWidget.h"
+
+#include "Components/SceneCaptureComponent2D.h"
 #include "Engine/Canvas.h"
 #include "Engine/Font.h"
+#include "Engine/Texture2D.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Engine/World.h"
+#include "Blueprint/UserWidget.h"
+#include "Framework/Commands/InputChord.h"
+#include "GameFramework/PlayerController.h"
+#include "GraduationProject/Core/CameraPawn.h"
 #include "GraduationProject/Core/Manager/AgentManager.h"
 #include "GraduationProject/Drone/DronePawn.h"
 #include "GraduationProject/Turret/TurretPawn.h"
+#include "GraduationProject/Vision/AirSimImageUtils.h"
+#include "InputCoreTypes.h"
 
-/**
- * @brief 每帧绘制 HUD 内容
- * 依次绘制智能体信息、制导信息和帧率
- */
+namespace
+{
+    constexpr int32 kPipSlotCount = 3;
+
+    int32 GetPipAgentPriority(const FString& AgentId)
+    {
+        if (AgentId.Equals(TEXT("drone_0"), ESearchCase::IgnoreCase))
+        {
+            return 0;
+        }
+        if (AgentId.StartsWith(TEXT("drone_"), ESearchCase::IgnoreCase))
+        {
+            return 10;
+        }
+        if (AgentId.Equals(TEXT("turret_0"), ESearchCase::IgnoreCase))
+        {
+            return 20;
+        }
+        if (AgentId.StartsWith(TEXT("turret_"), ESearchCase::IgnoreCase))
+        {
+            return 30;
+        }
+        return 40;
+    }
+}
+
+void ASimHUD::BeginPlay()
+{
+    Super::BeginPlay();
+    EnsureAgentListWidget();
+    BindPipHotkeys();
+}
+
+
+void ASimHUD::EnsureAgentListWidget()
+{
+    if (!bEnableAgentListWidget || AgentListWidget)
+    {
+        return;
+    }
+
+    APlayerController* PC = PlayerOwner;
+    if (!PC && GetWorld())
+    {
+        PC = GetWorld()->GetFirstPlayerController();
+    }
+
+    if (!PC)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[AgentList] Cannot create widget: no PlayerController"));
+        return;
+    }
+
+    AgentListWidget = CreateWidget<UAgentListWidget>(PC, UAgentListWidget::StaticClass());
+    if (!AgentListWidget)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[AgentList] Failed to create widget"));
+        return;
+    }
+
+    if (ACameraPawn* CameraPawn = Cast<ACameraPawn>(PC->GetPawn()))
+    {
+        AgentListWidget->SetCameraPawn(CameraPawn);
+    }
+
+    AgentListWidget->AddToViewport(30);
+
+    if (bEnableAgentListMouse)
+    {
+        FInputModeGameAndUI InputMode;
+        InputMode.SetHideCursorDuringCapture(false);
+        InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+        PC->SetInputMode(InputMode);
+        PC->bShowMouseCursor = true;
+    }
+}
+void ASimHUD::BindPipHotkeys()
+{
+    if (bPipHotkeysBound)
+    {
+        return;
+    }
+
+    APlayerController* PC = PlayerOwner;
+    if (!PC && GetWorld())
+    {
+        PC = GetWorld()->GetFirstPlayerController();
+    }
+
+    if (!PC)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[PIP] Cannot bind hotkeys: no PlayerController"));
+        return;
+    }
+
+    EnableInput(PC);
+    if (!InputComponent)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[PIP] Cannot bind hotkeys: InputComponent is null"));
+        return;
+    }
+
+    // AirSim-like PIP slot keys: 1/2/3
+    InputComponent->BindKey(EKeys::One, IE_Pressed, this, &ASimHUD::OnHotkeyTogglePip1);
+    InputComponent->BindKey(EKeys::NumPadOne, IE_Pressed, this, &ASimHUD::OnHotkeyTogglePip1);
+    InputComponent->BindKey(EKeys::Two, IE_Pressed, this, &ASimHUD::OnHotkeyTogglePip2);
+    InputComponent->BindKey(EKeys::NumPadTwo, IE_Pressed, this, &ASimHUD::OnHotkeyTogglePip2);
+    InputComponent->BindKey(EKeys::Three, IE_Pressed, this, &ASimHUD::OnHotkeyTogglePip3);
+    InputComponent->BindKey(EKeys::NumPadThree, IE_Pressed, this, &ASimHUD::OnHotkeyTogglePip3);
+
+    // Image type set keys for active slot: Ctrl+0/1/3/5/7
+    InputComponent->BindKey(FInputChord(EKeys::Zero, false, true, false, false), IE_Pressed, this, &ASimHUD::OnHotkeySetImageTypeScene);
+    InputComponent->BindKey(FInputChord(EKeys::One, false, true, false, false), IE_Pressed, this, &ASimHUD::OnHotkeySetImageTypeDepthPlanar);
+    InputComponent->BindKey(FInputChord(EKeys::Three, false, true, false, false), IE_Pressed, this, &ASimHUD::OnHotkeySetImageTypeDepthVis);
+    InputComponent->BindKey(FInputChord(EKeys::Five, false, true, false, false), IE_Pressed, this, &ASimHUD::OnHotkeySetImageTypeSegmentation);
+    InputComponent->BindKey(FInputChord(EKeys::Seven, false, true, false, false), IE_Pressed, this, &ASimHUD::OnHotkeySetImageTypeInfrared);
+
+    bPipHotkeysBound = true;
+    UE_LOG(LogTemp, Log, TEXT("[PIP] Hotkeys bound: 1/2/3 slot toggle, Ctrl+0/1/3/5/7 image type"));
+}
+
+void ASimHUD::OnHotkeyTogglePip1()
+{
+    TogglePipSlot(0);
+}
+
+void ASimHUD::OnHotkeyTogglePip2()
+{
+    TogglePipSlot(1);
+}
+
+void ASimHUD::OnHotkeyTogglePip3()
+{
+    TogglePipSlot(2);
+}
+
+void ASimHUD::OnHotkeySetImageTypeScene()
+{
+    SetActivePipSlotImageType(AirSimImageUtils::EImageType::Scene);
+}
+
+void ASimHUD::OnHotkeySetImageTypeDepthPlanar()
+{
+    SetActivePipSlotImageType(AirSimImageUtils::EImageType::DepthPlanar);
+}
+
+void ASimHUD::OnHotkeySetImageTypeDepthVis()
+{
+    SetActivePipSlotImageType(AirSimImageUtils::EImageType::DepthVis);
+}
+
+void ASimHUD::OnHotkeySetImageTypeSegmentation()
+{
+    SetActivePipSlotImageType(AirSimImageUtils::EImageType::Segmentation);
+}
+
+void ASimHUD::OnHotkeySetImageTypeInfrared()
+{
+    SetActivePipSlotImageType(AirSimImageUtils::EImageType::Infrared);
+}
+
+void ASimHUD::SetActivePipSlotImageType(AirSimImageUtils::EImageType ImageType)
+{
+    EnsurePipInitialized();
+    if (!PipSlots.IsValidIndex(ActivePipSlotIndex))
+    {
+        return;
+    }
+
+    SetPipImageType(ActivePipSlotIndex, static_cast<int32>(ImageType));
+}
+
 void ASimHUD::DrawHUD()
 {
     Super::DrawHUD();
+
     float Y = 20.0f;
     DrawAgentInfo(Y);
     Y += 10.0f;
     DrawGuidanceInfo(Y);
     Y += 10.0f;
     DrawFPS(Y);
+
+    DrawPipWindows();
 }
 
-/**
- * @brief 绘制一行文本并自动递增 Y 坐标
- * @param Text 要显示的文本
- * @param X 绘制 X 坐标
- * @param Y 当前绘制 Y 坐标
- * @param Color 文本颜色
- * @param Scale 文本缩放比例
- */
 void ASimHUD::DrawTextLine(const FString& Text, float X, float& Y, FLinearColor Color, float Scale)
 {
     DrawText(Text, Color, X, Y, nullptr, Scale);
     Y += 18.0f * Scale;
 }
 
-/**
- * @brief 绘制分区标题
- * @param Title 标题文本
- * @param X 绘制 X 坐标
- * @param Y 当前绘制 Y 坐标
- */
 void ASimHUD::DrawSectionHeader(const FString& Title, float X, float& Y)
 {
     DrawText(Title, FLinearColor(0.3f, 0.8f, 1.0f), X, Y, nullptr, 1.2f);
     Y += 22.0f;
 }
 
-/**
- * @brief 绘制所有已注册智能体的状态信息
- * @param Y 当前绘制 Y 坐标
- */
 void ASimHUD::DrawAgentInfo(float& Y)
 {
-    float X = 20.0f;
+    const float X = 20.0f;
+
     UAgentManager* Manager = UAgentManager::GetInstance();
-    if (!Manager) return;
-    TArray<FString> Ids = Manager->GetAllAgentIds();
+    if (!Manager)
+    {
+        return;
+    }
+
+    const TArray<FString> Ids = Manager->GetAllAgentIds();
     DrawSectionHeader(FString::Printf(TEXT("Agents (%d)"), Ids.Num()), X, Y);
+
     for (const FString& Id : Ids)
     {
         AActor* Agent = Manager->GetAgent(Id);
-        if (!Agent) continue;
-        FVector Pos = Agent->GetActorLocation();
+        if (!Agent)
+        {
+            continue;
+        }
+
+        const FVector Pos = Agent->GetActorLocation();
         if (ADronePawn* Drone = Cast<ADronePawn>(Agent))
         {
-            FVector Vel = Drone->GetCurrentVelocity();
-            DrawTextLine(FString::Printf(TEXT("  [Drone] %s  pos=(%.0f, %.0f, %.0f)  vel=(%.1f, %.1f, %.1f)"),
-                *Id, Pos.X, Pos.Y, Pos.Z, Vel.X, Vel.Y, Vel.Z),
+            const FVector Vel = Drone->GetCurrentVelocity();
+            DrawTextLine(
+                FString::Printf(TEXT("  [Drone] %s  pos=(%.0f, %.0f, %.0f)  vel=(%.1f, %.1f, %.1f)"),
+                    *Id, Pos.X, Pos.Y, Pos.Z, Vel.X, Vel.Y, Vel.Z),
                 X, Y, FLinearColor::Green);
         }
         else if (ATurretPawn* Turret = Cast<ATurretPawn>(Agent))
         {
-            DrawTextLine(FString::Printf(TEXT("  [Turret] %s  pos=(%.0f, %.0f, %.0f)  pitch=%.1f yaw=%.1f  tracking=%s"),
-                *Id, Pos.X, Pos.Y, Pos.Z,
-                Turret->GetCurrentPitch(), Turret->GetCurrentYaw(),
-                Turret->IsTracking() ? TEXT("ON") : TEXT("off")),
+            DrawTextLine(
+                FString::Printf(TEXT("  [Turret] %s  pos=(%.0f, %.0f, %.0f)  pitch=%.1f yaw=%.1f  tracking=%s"),
+                    *Id, Pos.X, Pos.Y, Pos.Z,
+                    Turret->GetCurrentPitch(), Turret->GetCurrentYaw(),
+                    Turret->IsTracking() ? TEXT("ON") : TEXT("off")),
                 X, Y, FLinearColor::Yellow);
         }
         else
         {
-            DrawTextLine(FString::Printf(TEXT("  [Agent] %s  pos=(%.0f, %.0f, %.0f)"),
-                *Id, Pos.X, Pos.Y, Pos.Z),
+            DrawTextLine(
+                FString::Printf(TEXT("  [Agent] %s  pos=(%.0f, %.0f, %.0f)"), *Id, Pos.X, Pos.Y, Pos.Z),
                 X, Y);
         }
     }
 }
 
-/**
- * @brief 绘制制导系统信息区域
- * @param Y 当前绘制 Y 坐标
- */
 void ASimHUD::DrawGuidanceInfo(float& Y)
 {
-    float X = 20.0f;
+    const float X = 20.0f;
     DrawSectionHeader(TEXT("Guidance"), X, Y);
     DrawTextLine(TEXT("  (use get_guidance_state via TCP for details)"), X, Y, FLinearColor(0.6f, 0.6f, 0.6f));
 }
 
-/**
- * @brief 绘制帧率信息
- * @param Y 当前绘制 Y 坐标
- */
 void ASimHUD::DrawFPS(float& Y)
 {
-    float X = 20.0f;
-    float FPS = 1.0f / FMath::Max(GetWorld()->GetDeltaSeconds(), 0.001f);
-    FLinearColor FPSColor = (FPS >= 30.0f) ? FLinearColor::Green :
-                            (FPS >= 15.0f) ? FLinearColor::Yellow : FLinearColor::Red;
+    const float X = 20.0f;
+    const float FPS = 1.0f / FMath::Max(GetWorld()->GetDeltaSeconds(), 0.001f);
+    const FLinearColor FPSColor = (FPS >= 30.0f)
+        ? FLinearColor::Green
+        : (FPS >= 15.0f ? FLinearColor::Yellow : FLinearColor::Red);
+
     DrawTextLine(FString::Printf(TEXT("FPS: %.0f"), FPS), X, Y, FPSColor, 1.1f);
 }
+
+void ASimHUD::TogglePipSlot(int32 SlotIndex)
+{
+    EnsurePipInitialized();
+    if (!PipSlots.IsValidIndex(SlotIndex))
+    {
+        return;
+    }
+
+    ActivePipSlotIndex = SlotIndex;
+
+    FPipSlotState& Slot = PipSlots[SlotIndex];
+    Slot.bVisible = !Slot.bVisible;
+
+    RefreshPipSourcesIfNeeded();
+    if (Slot.bVisible && Slot.AgentId.IsEmpty())
+    {
+        Slot.AgentId = FindNextAgentWithCamera();
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[PIP] Slot %d -> %s (%s, %s)"),
+        SlotIndex + 1,
+        Slot.bVisible ? TEXT("Visible") : TEXT("Hidden"),
+        *Slot.AgentId,
+        *GetImageTypeLabel(NormalizeImageType(Slot.ImageType)));
+}
+
+void ASimHUD::SetPipSource(int32 SlotIndex, const FString& AgentId)
+{
+    EnsurePipInitialized();
+    if (!PipSlots.IsValidIndex(SlotIndex))
+    {
+        return;
+    }
+
+    FPipSlotState& Slot = PipSlots[SlotIndex];
+    Slot.AgentId = AgentId;
+    Slot.LastUpdateTimeSec = -1.0f;
+}
+
+void ASimHUD::SetPipImageType(int32 SlotIndex, int32 ImageType)
+{
+    EnsurePipInitialized();
+    if (!PipSlots.IsValidIndex(SlotIndex))
+    {
+        return;
+    }
+
+    const AirSimImageUtils::EImageType Normalized = NormalizeImageType(ImageType);
+    FPipSlotState& Slot = PipSlots[SlotIndex];
+    Slot.ImageType = static_cast<int32>(Normalized);
+    Slot.LastUpdateTimeSec = -1.0f;
+
+    UE_LOG(LogTemp, Log, TEXT("[PIP] Slot %d image_type -> %s"), SlotIndex + 1, *GetImageTypeLabel(Normalized));
+}
+
+void ASimHUD::DrawPipWindows()
+{
+    EnsurePipInitialized();
+
+    if (!Canvas || PipSlots.Num() == 0)
+    {
+        return;
+    }
+
+    const float Margin = 20.0f;
+    const float GapY = 10.0f;
+    const float LabelScale = 0.85f;
+
+    for (int32 Index = 0; Index < PipSlots.Num(); ++Index)
+    {
+        FPipSlotState& Slot = PipSlots[Index];
+        if (!Slot.bVisible)
+        {
+            continue;
+        }
+
+        const float X = Canvas->ClipX - Slot.Width - Margin;
+        const float Y = Margin + Index * (Slot.Height + GapY);
+
+        if (UTexture* Texture = ResolvePipTexture(Slot))
+        {
+            DrawTexture(
+                Texture,
+                X, Y,
+                Slot.Width, Slot.Height,
+                0.0f, 0.0f,
+                1.0f, 1.0f,
+                FLinearColor::White,
+                BLEND_Opaque,
+                1.0f,
+                false,
+                0.0f,
+                FVector2D::ZeroVector);
+        }
+        else
+        {
+            DrawRect(FLinearColor(0.05f, 0.05f, 0.05f, 0.85f), X, Y, Slot.Width, Slot.Height);
+            float TextY = Y + Slot.Height * 0.45f;
+            DrawTextLine(TEXT("No camera source"), X + 10.0f, TextY, FLinearColor::Yellow, 1.0f);
+        }
+
+        DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.40f), X, Y, Slot.Width, 22.0f);
+        float LabelY = Y + 2.0f;
+        const FString SlotAgentLabel = Slot.AgentId.IsEmpty() ? TEXT("<none>") : Slot.AgentId;
+        const FString TypeLabel = GetImageTypeLabel(NormalizeImageType(Slot.ImageType));
+        const FString ActiveTag = (Index == ActivePipSlotIndex) ? TEXT("*") : TEXT(" ");
+        DrawTextLine(
+            FString::Printf(TEXT("[%d%s] %s | %s"), Index + 1, *ActiveTag, *SlotAgentLabel, *TypeLabel),
+            X + 8.0f,
+            LabelY,
+            FLinearColor::White,
+            LabelScale);
+    }
+}
+
+TArray<FString> ASimHUD::GetSortedCameraAgentIds() const
+{
+    UAgentManager* Manager = UAgentManager::GetInstance();
+    if (!Manager)
+    {
+        return {};
+    }
+
+    const TArray<FString> Ids = Manager->GetAllAgentIds();
+    TArray<FString> CameraIds;
+    CameraIds.Reserve(Ids.Num());
+
+    for (const FString& Id : Ids)
+    {
+        if (!Id.IsEmpty() && ResolvePipRenderTarget(Id))
+        {
+            CameraIds.Add(Id);
+        }
+    }
+
+    CameraIds.Sort([](const FString& A, const FString& B)
+    {
+        const int32 PriorityA = GetPipAgentPriority(A);
+        const int32 PriorityB = GetPipAgentPriority(B);
+        if (PriorityA != PriorityB)
+        {
+            return PriorityA < PriorityB;
+        }
+        return A < B;
+    });
+
+    return CameraIds;
+}
+
+void ASimHUD::RefreshPipSourcesIfNeeded()
+{
+    if (PipSlots.Num() == 0)
+    {
+        return;
+    }
+
+    const TArray<FString> OrderedIds = GetSortedCameraAgentIds();
+    TSet<FString> AvailableIds(OrderedIds);
+    TSet<FString> UsedIds;
+
+    for (FPipSlotState& Slot : PipSlots)
+    {
+        if (Slot.AgentId.IsEmpty() || !AvailableIds.Contains(Slot.AgentId) || UsedIds.Contains(Slot.AgentId))
+        {
+            Slot.AgentId = TEXT("");
+            continue;
+        }
+
+        UsedIds.Add(Slot.AgentId);
+    }
+
+    for (FPipSlotState& Slot : PipSlots)
+    {
+        if (!Slot.AgentId.IsEmpty())
+        {
+            continue;
+        }
+
+        for (const FString& CandidateId : OrderedIds)
+        {
+            if (UsedIds.Contains(CandidateId))
+            {
+                continue;
+            }
+
+            Slot.AgentId = CandidateId;
+            UsedIds.Add(CandidateId);
+            break;
+        }
+    }
+}
+
+void ASimHUD::EnsurePipInitialized()
+{
+    if (!bPipInitialized)
+    {
+        PipSlots.SetNum(kPipSlotCount);
+
+        const int32 DefaultTypes[kPipSlotCount] =
+        {
+            static_cast<int32>(AirSimImageUtils::EImageType::Scene),
+            static_cast<int32>(AirSimImageUtils::EImageType::DepthVis),
+            static_cast<int32>(AirSimImageUtils::EImageType::Segmentation)
+        };
+
+        for (int32 i = 0; i < PipSlots.Num(); ++i)
+        {
+            FPipSlotState& Slot = PipSlots[i];
+            Slot.bVisible = false;
+            Slot.Width = 320.0f;
+            Slot.Height = 180.0f;
+            Slot.AgentId = TEXT("");
+            Slot.ImageType = DefaultTypes[i];
+            Slot.ProcessedTexture = nullptr;
+            Slot.LastUpdateTimeSec = -1.0f;
+            Slot.WorkingPixels.Reset();
+        }
+
+        ActivePipSlotIndex = 0;
+        bPipInitialized = true;
+    }
+
+    RefreshPipSourcesIfNeeded();
+}
+
+FString ASimHUD::FindNextAgentWithCamera(const FString& CurrentId) const
+{
+    const TArray<FString> Ids = GetSortedCameraAgentIds();
+    if (Ids.Num() == 0)
+    {
+        return TEXT("");
+    }
+
+    int32 StartIndex = 0;
+    if (!CurrentId.IsEmpty())
+    {
+        const int32 Found = Ids.IndexOfByKey(CurrentId);
+        if (Found != INDEX_NONE)
+        {
+            StartIndex = (Found + 1) % Ids.Num();
+        }
+    }
+
+    return Ids[StartIndex];
+}
+
+UTextureRenderTarget2D* ASimHUD::ResolvePipRenderTarget(const FString& AgentId) const
+{
+    if (AgentId.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    UAgentManager* Manager = UAgentManager::GetInstance();
+    if (!Manager)
+    {
+        return nullptr;
+    }
+
+    AActor* Agent = Manager->GetAgent(AgentId);
+    if (!Agent)
+    {
+        return nullptr;
+    }
+
+    if (const ADronePawn* Drone = Cast<ADronePawn>(Agent))
+    {
+        return Drone->DroneSceneCapture ? Drone->DroneSceneCapture->TextureTarget : nullptr;
+    }
+
+    if (const ATurretPawn* Turret = Cast<ATurretPawn>(Agent))
+    {
+        return Turret->TurretSceneCapture ? Turret->TurretSceneCapture->TextureTarget : nullptr;
+    }
+
+    return nullptr;
+}
+
+bool ASimHUD::ResolvePipCaptureInfo(const FString& AgentId, USceneCaptureComponent2D*& OutCapture, int32& OutWidth, int32& OutHeight) const
+{
+    OutCapture = nullptr;
+    OutWidth = 0;
+    OutHeight = 0;
+
+    if (AgentId.IsEmpty())
+    {
+        return false;
+    }
+
+    UAgentManager* Manager = UAgentManager::GetInstance();
+    if (!Manager)
+    {
+        return false;
+    }
+
+    AActor* Agent = Manager->GetAgent(AgentId);
+    if (!Agent)
+    {
+        return false;
+    }
+
+    if (const ADronePawn* Drone = Cast<ADronePawn>(Agent))
+    {
+        if (!Drone->DroneSceneCapture)
+        {
+            return false;
+        }
+
+        OutCapture = Drone->DroneSceneCapture;
+        OutWidth = Drone->CameraWidth;
+        OutHeight = Drone->CameraHeight;
+        return true;
+    }
+
+    if (const ATurretPawn* Turret = Cast<ATurretPawn>(Agent))
+    {
+        if (!Turret->TurretSceneCapture)
+        {
+            return false;
+        }
+
+        OutCapture = Turret->TurretSceneCapture;
+        OutWidth = Turret->CameraWidth;
+        OutHeight = Turret->CameraHeight;
+        return true;
+    }
+
+    return false;
+}
+
+UTexture* ASimHUD::ResolvePipTexture(FPipSlotState& Slot)
+{
+    USceneCaptureComponent2D* Capture = nullptr;
+    int32 SourceWidth = 0;
+    int32 SourceHeight = 0;
+    if (!ResolvePipCaptureInfo(Slot.AgentId, Capture, SourceWidth, SourceHeight))
+    {
+        return nullptr;
+    }
+
+    const AirSimImageUtils::EImageType Type = NormalizeImageType(Slot.ImageType);
+    if (Type == AirSimImageUtils::EImageType::Scene)
+    {
+        return Capture->TextureTarget;
+    }
+
+    if (NonSceneUpdateHz > KINDA_SMALL_NUMBER && Slot.ProcessedTexture && GetWorld())
+    {
+        const float MinUpdateInterval = 1.0f / NonSceneUpdateHz;
+        const float Now = GetWorld()->GetTimeSeconds();
+        if (Slot.LastUpdateTimeSec >= 0.0f && (Now - Slot.LastUpdateTimeSec) < MinUpdateInterval)
+        {
+            return Slot.ProcessedTexture;
+        }
+    }
+
+    int32 EffectiveMaxWidth = NonSceneMaxWidth;
+    int32 EffectiveMaxHeight = NonSceneMaxHeight;
+    if (Type == AirSimImageUtils::EImageType::DepthPlanar || Type == AirSimImageUtils::EImageType::DepthVis)
+    {
+        EffectiveMaxWidth = FMath::Min(EffectiveMaxWidth, DepthModeMaxWidth);
+        EffectiveMaxHeight = FMath::Min(EffectiveMaxHeight, DepthModeMaxHeight);
+    }
+
+    const float WidthScale = static_cast<float>(EffectiveMaxWidth) / FMath::Max(1, SourceWidth);
+    const float HeightScale = static_cast<float>(EffectiveMaxHeight) / FMath::Max(1, SourceHeight);
+    const float CaptureScale = FMath::Clamp(FMath::Min3(1.0f, WidthScale, HeightScale), 0.1f, 1.0f);
+    const int32 CaptureWidth = FMath::Max(64, FMath::RoundToInt(SourceWidth * CaptureScale));
+    const int32 CaptureHeight = FMath::Max(64, FMath::RoundToInt(SourceHeight * CaptureScale));
+
+    if (!AirSimImageUtils::CapturePixels(Capture, CaptureWidth, CaptureHeight, Type, Slot.WorkingPixels, PipMaxDepthMeters))
+    {
+        return nullptr;
+    }
+
+    if (!UpdateSlotProcessedTexture(Slot, Slot.WorkingPixels, CaptureWidth, CaptureHeight, Type))
+    {
+        return nullptr;
+    }
+
+    if (GetWorld())
+    {
+        Slot.LastUpdateTimeSec = GetWorld()->GetTimeSeconds();
+    }
+
+    return Slot.ProcessedTexture;
+}
+
+bool ASimHUD::UpdateSlotProcessedTexture(FPipSlotState& Slot, const TArray<FColor>& Pixels, int32 Width, int32 Height, AirSimImageUtils::EImageType SourceType)
+{
+    if (Pixels.Num() != Width * Height || Width <= 0 || Height <= 0)
+    {
+        return false;
+    }
+
+    const TextureFilter DesiredFilter = (SourceType == AirSimImageUtils::EImageType::Segmentation) ? TF_Nearest : TF_Bilinear;
+
+    if (!Slot.ProcessedTexture ||
+        !Slot.ProcessedTexture->GetPlatformData() ||
+        Slot.ProcessedTexture->GetSizeX() != Width ||
+        Slot.ProcessedTexture->GetSizeY() != Height)
+    {
+        Slot.ProcessedTexture = UTexture2D::CreateTransient(Width, Height, PF_B8G8R8A8);
+        if (!Slot.ProcessedTexture)
+        {
+            return false;
+        }
+
+        Slot.ProcessedTexture->MipGenSettings = TMGS_NoMipmaps;
+        Slot.ProcessedTexture->CompressionSettings = TC_VectorDisplacementmap;
+        Slot.ProcessedTexture->SRGB = false;
+        Slot.ProcessedTexture->Filter = DesiredFilter;
+        Slot.ProcessedTexture->NeverStream = true;
+        Slot.ProcessedTexture->UpdateResource();
+    }
+
+    else if (Slot.ProcessedTexture->Filter != DesiredFilter)
+    {
+        Slot.ProcessedTexture->Filter = DesiredFilter;
+        Slot.ProcessedTexture->UpdateResource();
+    }
+
+    const int64 ByteCount = static_cast<int64>(Pixels.Num()) * sizeof(FColor);
+    if (ByteCount <= 0 || ByteCount > MAX_int32)
+    {
+        return false;
+    }
+
+    uint8* UploadData = static_cast<uint8*>(FMemory::Malloc(static_cast<SIZE_T>(ByteCount)));
+    if (!UploadData)
+    {
+        return false;
+    }
+    FMemory::Memcpy(UploadData, Pixels.GetData(), static_cast<SIZE_T>(ByteCount));
+
+    FUpdateTextureRegion2D* Region = new FUpdateTextureRegion2D(0, 0, 0, 0, Width, Height);
+    Slot.ProcessedTexture->UpdateTextureRegions(
+        0,
+        1,
+        Region,
+        Width * sizeof(FColor),
+        sizeof(FColor),
+        UploadData,
+        [](uint8* SrcData, const FUpdateTextureRegion2D* Regions)
+        {
+            if (SrcData)
+            {
+                FMemory::Free(SrcData);
+            }
+            if (Regions)
+            {
+                delete Regions;
+            }
+        });
+
+    return true;
+}
+
+AirSimImageUtils::EImageType ASimHUD::NormalizeImageType(int32 ImageType) const
+{
+    switch (ImageType)
+    {
+    case 0: return AirSimImageUtils::EImageType::Scene;
+    case 1: return AirSimImageUtils::EImageType::DepthPlanar;
+    case 3: return AirSimImageUtils::EImageType::DepthVis;
+    case 5: return AirSimImageUtils::EImageType::Segmentation;
+    case 7: return AirSimImageUtils::EImageType::Infrared;
+    default: return AirSimImageUtils::EImageType::Scene;
+    }
+}
+
+FString ASimHUD::GetImageTypeLabel(AirSimImageUtils::EImageType ImageType) const
+{
+    return AirSimImageUtils::ToDisplayString(ImageType);
+}
+
+
+

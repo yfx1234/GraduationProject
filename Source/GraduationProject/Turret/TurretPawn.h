@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 转台旋转、跟踪、弹道计算、开火、预测线、图像采集
  * 组件层级：
  *   CollisionComponent 
@@ -177,6 +177,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
     int32 CameraHeight = 720;
 
+    /** @brief 语义分割 ID（0-255，对齐 AirSim segmentation 逻辑） */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "0", ClampMax = "255"))
+    int32 SegmentationId = 60;
+
     /** @brief 曝光补偿 EV */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "-10.0", ClampMax = "10.0"))
     float ExposureBias = 0.0f;
@@ -214,6 +218,9 @@ private:
 
     /** @brief 将 CineCamera 的 PostProcess 设置同步到 SceneCapture */
     void SyncPostProcessToCapture();
+
+    /** @brief 将该转台可见网格写入 CustomDepth/Stencil，用于 Segmentation 图像 */
+    void ApplySegmentationStencil();
 
     /** @brief 目标俯仰角 */
     float TargetPitch = 0.0f;

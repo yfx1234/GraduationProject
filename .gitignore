@@ -7,3 +7,7 @@ Saved/
 /PythonClient/YOLO
 Document/
 .idea/
+.vscode/
+__pycache__/
+*.py[cod]
+PythonClient/Drone/snapshots/

@@ -3,8 +3,8 @@
 #include "DroneMovementComponent.h"
 
 /**
- * @brief 初始化 API，绑定到指定的 DronePawn
- * @param Owner 拥有此 API 的 DronePawn 实例
+ * @brief 鍒濆鍖?API锛岀粦瀹氬埌鎸囧畾鐨?DronePawn
+ * @param Owner 鎷ユ湁姝?API 鐨?DronePawn 瀹炰緥
  */
 void UDroneApi::Initialize(ADronePawn* Owner)
 {
@@ -12,47 +12,47 @@ void UDroneApi::Initialize(ADronePawn* Owner)
 }
 
 /**
- * @brief 移动到指定坐标位置
- * @param X 目标 X 坐标 (m)
- * @param Y 目标 Y 坐标 (m)
- * @param Z 目标 Z 坐标 (m)
- * @param Speed 移动速度 (m/s)
+ * @brief 绉诲姩鍒版寚瀹氬潗鏍囦綅缃?
+ * @param X 鐩爣 X 鍧愭爣 (m)
+ * @param Y 鐩爣 Y 鍧愭爣 (m)
+ * @param Z 鐩爣 Z 鍧愭爣 (m)
+ * @param Speed 绉诲姩閫熷害 (m/s)
  */
 void UDroneApi::MoveToPosition(float X, float Y, float Z, float Speed)
 {
     if (OwnerPawn)
     {
-        OwnerPawn->SetTargetPosition(FVector(X, Y, Z));
-        UE_LOG(LogTemp, Log, TEXT("[DroneApi] MoveToPosition(%.1f, %.1f, %.1f)"), X, Y, Z);
+        OwnerPawn->SetTargetPosition(FVector(X, Y, Z), Speed);
+        UE_LOG(LogTemp, Log, TEXT("[DroneApi] MoveToPosition(%.1f, %.1f, %.1f), speed=%.2f"), X, Y, Z, Speed);
     }
 }
 
-/** @brief 在当前位置悬停 */
+/** @brief 鍦ㄥ綋鍓嶄綅缃偓鍋?*/
 void UDroneApi::Hover()
 {
     if (OwnerPawn) OwnerPawn->Hover();
 }
 
 /**
- * @brief 起飞到指定高度
- * @param Altitude 目标飞行高度 (m)
+ * @brief 璧烽鍒版寚瀹氶珮搴?
+ * @param Altitude 鐩爣椋炶楂樺害 (m)
  */
 void UDroneApi::Takeoff(float Altitude)
 {
     if (OwnerPawn) OwnerPawn->Takeoff(Altitude);
 }
 
-/** @brief 降落到地面 */
+/** @brief 闄嶈惤鍒板湴闈?*/
 void UDroneApi::Land()
 {
     if (OwnerPawn) OwnerPawn->Land();
 }
 
 /**
- * @brief 按速度飞行
- * @param Vx X 方向速度 (m/s)
- * @param Vy Y 方向速度 (m/s)
- * @param Vz Z 方向速度 (m/s)
+ * @brief 鎸夐€熷害椋炶
+ * @param Vx X 鏂瑰悜閫熷害 (m/s)
+ * @param Vy Y 鏂瑰悜閫熷害 (m/s)
+ * @param Vz Z 鏂瑰悜閫熷害 (m/s)
  */
 void UDroneApi::MoveByVelocity(float Vx, float Vy, float Vz)
 {
@@ -62,10 +62,36 @@ void UDroneApi::MoveByVelocity(float Vx, float Vy, float Vz)
         UE_LOG(LogTemp, Log, TEXT("[DroneApi] MoveByVelocity(%.1f, %.1f, %.1f)"), Vx, Vy, Vz);
     }
 }
+void UDroneApi::SetTargetAttitude(float RollDeg, float PitchDeg, float YawDeg, float Thrust)
+{
+    if (OwnerPawn && OwnerPawn->MovementComp)
+    {
+        OwnerPawn->MovementComp->SetControlMode(EDroneControlMode::AttitudeThrust);
+        OwnerPawn->MovementComp->SetTargetAttitude(FRotator(PitchDeg, YawDeg, RollDeg), Thrust);
+        OwnerPawn->ControlMode = EDroneControlMode::AttitudeThrust;
+    }
+}
+
+void UDroneApi::SetMotorSpeeds(float M0, float M1, float M2, float M3)
+{
+    if (OwnerPawn && OwnerPawn->MovementComp)
+    {
+        OwnerPawn->MovementComp->SetControlMode(EDroneControlMode::MotorSpeed);
+        OwnerPawn->MovementComp->SetControlCommand({ M0, M1, M2, M3 });
+        OwnerPawn->ControlMode = EDroneControlMode::MotorSpeed;
+    }
+}
+void UDroneApi::SetHeadingControl(EDroneYawMode YawMode, EDroneDrivetrainMode Drivetrain, float YawDeg)
+{
+    if (OwnerPawn)
+    {
+        OwnerPawn->SetHeadingControl(YawMode, Drivetrain, YawDeg);
+    }
+}
 
 /**
- * @brief 获取当前位置
- * @return 位置向量 (m)
+ * @brief 鑾峰彇褰撳墠浣嶇疆
+ * @return 浣嶇疆鍚戦噺 (m)
  */
 FVector UDroneApi::GetPosition() const
 {
@@ -73,8 +99,8 @@ FVector UDroneApi::GetPosition() const
 }
 
 /**
- * @brief 获取当前速度
- * @return 速度向量 (m/s)
+ * @brief 鑾峰彇褰撳墠閫熷害
+ * @return 閫熷害鍚戦噺 (m/s)
  */
 FVector UDroneApi::GetVelocity() const
 {
@@ -82,8 +108,8 @@ FVector UDroneApi::GetVelocity() const
 }
 
 /**
- * @brief 获取当前姿态
- * @return 欧拉角 (Roll, Pitch, Yaw)
+ * @brief 鑾峰彇褰撳墠濮挎€?
+ * @return 娆ф媺瑙?(Roll, Pitch, Yaw)
  */
 FRotator UDroneApi::GetOrientation() const
 {
@@ -91,8 +117,8 @@ FRotator UDroneApi::GetOrientation() const
 }
 
 /**
- * @brief 获取四个电机的转速
- * @return 转速数组 (rad/s)
+ * @brief 鑾峰彇鍥涗釜鐢垫満鐨勮浆閫?
+ * @return 杞€熸暟缁?(rad/s)
  */
 TArray<float> UDroneApi::GetMotorSpeeds() const
 {
@@ -106,8 +132,8 @@ TArray<float> UDroneApi::GetMotorSpeeds() const
 }
 
 /**
- * @brief 获取当前控制模式
- * @return 控制模式枚举值
+ * @brief 鑾峰彇褰撳墠鎺у埗妯″紡
+ * @return 鎺у埗妯″紡鏋氫妇鍊?
  */
 EDroneControlMode UDroneApi::GetControlMode() const
 {
@@ -115,9 +141,9 @@ EDroneControlMode UDroneApi::GetControlMode() const
 }
 
 /**
- * @brief 设置位置控制器增益
- * @param Kp 比例增益
- * @param Kd 微分增益
+ * @brief 璁剧疆浣嶇疆鎺у埗鍣ㄥ鐩?
+ * @param Kp 姣斾緥澧炵泭
+ * @param Kd 寰垎澧炵泭
  */
 void UDroneApi::SetPositionControllerGains(float Kp, float Kd)
 {
@@ -126,10 +152,10 @@ void UDroneApi::SetPositionControllerGains(float Kp, float Kd)
 }
 
 /**
- * @brief 设置速度控制器增益
- * @param Kp 比例增益
- * @param Ki 积分增益
- * @param Kd 微分增益
+ * @brief 璁剧疆閫熷害鎺у埗鍣ㄥ鐩?
+ * @param Kp 姣斾緥澧炵泭
+ * @param Ki 绉垎澧炵泭
+ * @param Kd 寰垎澧炵泭
  */
 void UDroneApi::SetVelocityControllerGains(float Kp, float Ki, float Kd)
 {
@@ -138,9 +164,9 @@ void UDroneApi::SetVelocityControllerGains(float Kp, float Ki, float Kd)
 }
 
 /**
- * @brief 设置姿态控制器增益
- * @param Kp 比例增益
- * @param Kd 微分增益
+ * @brief 璁剧疆濮挎€佹帶鍒跺櫒澧炵泭
+ * @param Kp 姣斾緥澧炵泭
+ * @param Kd 寰垎澧炵泭
  */
 void UDroneApi::SetAttitudeControllerGains(float Kp, float Kd)
 {
@@ -149,8 +175,8 @@ void UDroneApi::SetAttitudeControllerGains(float Kp, float Kd)
 }
 
 /**
- * @brief 设置角速率控制器增益
- * @param Kp 比例增益
+ * @brief 璁剧疆瑙掗€熺巼鎺у埗鍣ㄥ鐩?
+ * @param Kp 姣斾緥澧炵泭
  */
 void UDroneApi::SetAngleRateControllerGains(float Kp)
 {
@@ -159,11 +185,12 @@ void UDroneApi::SetAngleRateControllerGains(float Kp)
 }
 
 /**
- * @brief 重置无人机到指定位置和姿态
- * @param Position 目标位置 (m)
- * @param Rotation 目标姿态
+ * @brief 閲嶇疆鏃犱汉鏈哄埌鎸囧畾浣嶇疆鍜屽Э鎬?
+ * @param Position 鐩爣浣嶇疆 (m)
+ * @param Rotation 鐩爣濮挎€?
  */
 void UDroneApi::Reset(FVector Position, FRotator Rotation)
 {
     if (OwnerPawn) OwnerPawn->ResetDrone(Position, Rotation);
 }
+

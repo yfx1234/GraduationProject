@@ -2,16 +2,18 @@
 
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
+#include "../Drone/DronePawn.h"
 #include "GuidanceCommandHandler.generated.h"
 
 class UKalmanPredictor;
 class IGuidanceMethod;
+class UAgentManager;
+class ADronePawn;
+class UVisualInterceptController;
 
 /**
- * 制导算法 TCP 命令处理器
- * 管理 IGuidanceMethod
- * 处理 call_guidance 命令
- * 处理 get_guidance_state 命令
+ * Guidance TCP command handler.
+ * Keeps existing turret guidance API and extends drone interception loop.
  */
 UCLASS()
 class GRADUATIONPROJECT_API UGuidanceCommandHandler : public UObject
@@ -22,53 +24,44 @@ public:
     UGuidanceCommandHandler();
     ~UGuidanceCommandHandler();
 
-    /**
-     * @brief 处理 call_guidance 命令
-     * @param JsonObject 完整的 JSON 请求对象
-     * @param World 当前 UWorld 指针
-     * @return JSON 格式的响应字符串
-     */
     FString HandleCallGuidance(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World);
-
-    /**
-     * @brief 处理 get_guidance_state 命令
-     * @param JsonObject 完整的 JSON 请求对象
-     * @param World 当前 UWorld 指针
-     * @return JSON 格式的制导状态数据
-     */
     FString HandleGetGuidanceState(const TSharedPtr<FJsonObject>& JsonObject, UWorld* World);
 
 private:
-    /** @brief 初始化 */
     void EnsureInitialized();
+    ADronePawn* FindDroneByRole(UAgentManager* Manager, EDroneMissionRole Role, const FString& ExcludeId = TEXT("")) const;
 
-    /** @brief 卡尔曼滤波目标预测器 */
     UPROPERTY()
     UKalmanPredictor* Predictor = nullptr;
 
-    /** @brief 当前制导方法 */
-    IGuidanceMethod* CurrentMethod = nullptr;
+    UPROPERTY()
+    UVisualInterceptController* VisualInterceptController = nullptr;
 
-    /** @brief 当前制导方法名称 */
+    IGuidanceMethod* CurrentMethod = nullptr;
     FString CurrentMethodName;
 
-    /** @brief 最近一次制导输出参数 */
-    float LastPitch = 0.0f;       
-    float LastYaw = 0.0f;         
-    FVector LastAimPoint = FVector::ZeroVector;  
-    float LastFlightTime = 0.0f;  
+    float LastPitch = 0.0f;
+    float LastYaw = 0.0f;
+    FVector LastAimPoint = FVector::ZeroVector;
+    float LastFlightTime = 0.0f;
+    float DefaultVisionLatency = 0.08f;
+    float LastLatencyCompensation = 0.08f;
 
-    /**
-     * @brief 生成错误响应 JSON
-     * @param Msg 错误信息
-     * @return {"status":"error","message":"<Msg>"}
-     */
+
+    // Drone interception config/state.
+    FString CurrentInterceptMethod = TEXT("pure_pursuit");
+    float InterceptorSpeed = 8.0f;
+    float InterceptNavGain = 3.0f;
+    float InterceptLeadTime = 0.6f;
+    float CaptureRadius = 1.5f;
+    FString LastInterceptorId;
+    FString LastTargetId;
+    FVector LastInterceptorCmdVel = FVector::ZeroVector;
+    float LastDistanceToTarget = 0.0f;
+    float LastClosingSpeed = 0.0f;
+    bool bLastInterceptValid = false;
+    bool bLastCaptured = false;
+
     FString MakeError(const FString& Msg);
-
-    /**
-     * @brief 生成成功响应 JSON
-     * @param Msg 成功信息，默认 "ok"
-     * @return {"status":"ok","message":"<Msg>"}
-     */
     FString MakeOk(const FString& Msg = TEXT("ok"));
 };

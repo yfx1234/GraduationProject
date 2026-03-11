@@ -1,24 +1,21 @@
 ﻿#include "KalmanPredictor.h"
 
-/**
- * @brief 构造函数
- * 初始化滤波器参数默认值，清零状态向量和协方差矩阵
- */
+// ============================================================================
+//  构造 / 初始化 / 重置
+// ============================================================================
+
 UKalmanPredictor::UKalmanPredictor()
     : QScale(1.0f)
     , RScale(0.5f)
+    , AdaptiveQ(1.0f)
     , bInitialized(false)
     , UpdateCount(0)
 {
-    FMemory::Memzero(X, sizeof(X));   
-    FMemory::Memzero(P, sizeof(P));   
+    FMemory::Memzero(X, sizeof(X));
+    FMemory::Memzero(P, sizeof(P));
+    FMemory::Memzero(ResidualVariance, sizeof(ResidualVariance));
 }
 
-/**
- * @brief 初始化滤波器参数并重置状态
- * @param ProcessNoise 过程噪声强度 Q
- * @param MeasurementNoise 测量噪声强度 R
- */
 void UKalmanPredictor::Initialize(float ProcessNoise, float MeasurementNoise)
 {
     QScale = ProcessNoise;
@@ -26,217 +23,272 @@ void UKalmanPredictor::Initialize(float ProcessNoise, float MeasurementNoise)
     Reset();
 }
 
-/** @brief 重置滤波器到初始状态 */
 void UKalmanPredictor::Reset()
 {
     FMemory::Memzero(X, sizeof(X));
-    MatIdentity6(P);
-    for (int i = 0; i < 6; i++) P[i][i] = 100.0;
+    FMemory::Memzero(P, sizeof(P));
+    // 初始协方差：位置 1000, 速度 100, 加速度 10
+    for (int32 i = 0; i < 3; i++) P[i][i]     = 1000.0;  // 位置不确定性
+    for (int32 i = 3; i < 6; i++) P[i][i]     = 100.0;   // 速度不确定性
+    for (int32 i = 6; i < 9; i++) P[i][i]     = 10.0;    // 加速度不确定性
+
+    AdaptiveQ = (double)QScale;
+    FMemory::Memzero(ResidualVariance, sizeof(ResidualVariance));
+
     bInitialized = false;
     UpdateCount = 0;
 }
 
-/**
- * @brief 卡尔曼滤波器的核心：预测 + 更新步骤
- * @param ObservedPos 目标观测位置
- * @param DeltaTime 距上次更新的时间间隔 (秒)
- * 算法流程：
- * H = [I 0], I为3x3 单位矩阵, 0为3x3零矩阵
- * 用观测值初始化状态
- * 构建状态转移矩阵 F :
- * F = | I  dt*I | = [1  0  0  dt 0  0 ]
- *     | 0    I  |   [0  1  0  0  dt 0 ]
- *                   [0  0  1  0  0  dt]
- *                   [0  0  0  1  0  0 ]
- *                   [0  0  0  0  1  0 ]
- *                   [0  0  0  0  0  1 ]
- * 先验状态估计: XPred = F * X
- * 构建过程噪声矩阵 Q :
- * Q = q * | dt^3/3*I  dt^2/2*I | = [dt^3/3*q  0         0         dt^2/2*q  0         0       ]
- *         | dt^2/2*I    dt*I   |   [0         dt^3/3*q  0         0         dt^2/2*q  0       ]
- *                                  [0         0         dt^3/3*q  0         0         dt^2/2*q]
- *                                  [dt^2/2*q  0         0         dt*q      0         0       ]
- *                                  [0         dt^2/2*q  0         0         dt*q      0       ]
- *                                  [0         0         dt^2/2*q  0         0         dt*q    ]
- * 先验协方差估计: PPred = FP * FT = F * P * F^T + Q
- * 残差: y = Pos - H * XPred
- * 残差协方差: S = H * PPred * H^T + R = [PPred00 + r  PPred01      PPred02     ]
-                                        [PPred10      PPred11 + r  PPred12     ]
-                                        [PPred20      PPred21      PPred22 + r ]
- * 卡尔曼增益: K = PPred * H^T * S⁻¹
- * 后验状态估计: X = XPred + K * y
- * 后验协方差估计: P = (I - KH) * PPred
- */
+// ============================================================================
+//  核心：预测 + 更新  (9维 CA 模型)
+// ============================================================================
+// 状态向量 x = [px, py, pz, vx, vy, vz, ax, ay, az]
+// 状态转移:
+//   F = | I   dt*I   0.5*dt²*I |
+//       | 0     I      dt*I    |
+//       | 0     0        I     |
+// 观测矩阵 H = [I  0  0]  (3×9)
+// 过程噪声 Q 基于加加速度(jerk)驱动的连续白噪声离散化
+// ============================================================================
+
 void UKalmanPredictor::Update(const FVector& ObservedPos, float DeltaTime)
 {
     if (DeltaTime <= 0.0f) return;
+
+    // ---------- 首次观测：直接初始化 ----------
     if (!bInitialized)
     {
-        X[0] = ObservedPos.X;   // X = [px, py, pz, vx, vy, vz]
-        X[1] = ObservedPos.Y;
-        X[2] = ObservedPos.Z;
-        X[3] = 0.0; X[4] = 0.0; X[5] = 0.0;
+        X[0] = ObservedPos.X;   // px
+        X[1] = ObservedPos.Y;   // py
+        X[2] = ObservedPos.Z;   // pz
+        for (int32 i = 3; i < N_STATE; i++) X[i] = 0.0;
         bInitialized = true;
         UpdateCount = 1;
         return;
     }
-    double dt = (double)DeltaTime;
-    double F[6][6];
-    MatIdentity6(F);
-    F[0][3] = dt; F[1][4] = dt; F[2][5] = dt;
-    double XPred[6];
-    for (int i = 0; i < 6; i++)         // XPred = [1  0  0  dt 0  0 ]
-    {                                   //         [0  1  0  0  dt 0 ]
-        XPred[i] = 0.0;                 //         [0  0  1  0  0  dt] * X
-        for (int j = 0; j < 6; j++)     //         [0  0  0  1  0  0 ]
-            XPred[i] += F[i][j] * X[j]; //         [0  0  0  0  1  0 ] 
-    }                                   //         [0  0  0  0  0  1 ]
-    double FT[6][6], FP[6][6], PPred[6][6];
-    MatTranspose6(F, FT);     // FT = F^T
-    MatMul6(F, P, FP);        // FP = F * P
-    MatMul6(FP, FT, PPred);   // PPred = FP * FT = F * P * F^T
-    double q = (double)QScale;
-    double dt2 = dt * dt;
-    double dt3 = dt2 * dt;
-    double Q[6][6];
-    FMemory::Memzero(Q, sizeof(Q));
-    for (int i = 0; i < 3; i++)
+
+    const double dt  = (double)DeltaTime;
+    const double dt2 = dt * dt;
+    const double dt3 = dt2 * dt;
+    const double dt4 = dt3 * dt;
+    const double dt5 = dt4 * dt;
+
+    // ======== 1) 构建状态转移矩阵 F (9×9) ========
+    double F[N_STATE * N_STATE];
+    MatIdentity(F, N_STATE);
+    for (int32 i = 0; i < 3; i++)
     {
-        Q[i][i] = q * dt3 / 3.0;          // q*dt^3/3
-        Q[i][i + 3] = q * dt2 / 2.0;      // q*dt^2/2
-        Q[i + 3][i] = q * dt2 / 2.0;      // q*dt^2/2
-        Q[i + 3][i + 3] = q * dt;         // q*dt
+        F[i * N_STATE + (i + 3)] = dt;            // pos += vel*dt
+        F[i * N_STATE + (i + 6)] = 0.5 * dt2;     // pos += 0.5*acc*dt²
+        F[(i + 3) * N_STATE + (i + 6)] = dt;      // vel += acc*dt
     }
-    MatAdd6(PPred, Q, PPred);             // PPred = PPred + Q
-    double y[3];
-    y[0] = ObservedPos.X - XPred[0];    // y[0] = px - XPred[0]
-    y[1] = ObservedPos.Y - XPred[1];    // y[1] = py - XPred[1]
-    y[2] = ObservedPos.Z - XPred[2];    // y[2] = pz - XPred[2]
-    double r = (double)RScale;
+
+    // ======== 2) 先验状态预测: XPred = F * X ========
+    double XPred[N_STATE];
+    for (int32 i = 0; i < N_STATE; i++)
+    {
+        XPred[i] = 0.0;
+        for (int32 j = 0; j < N_STATE; j++)
+            XPred[i] += F[i * N_STATE + j] * X[j];
+    }
+
+    // ======== 3) 先验协方差: PPred = F*P*F^T + Q ========
+    double FT[N_STATE * N_STATE];
+    double FP[N_STATE * N_STATE];
+    double PPred[N_STATE * N_STATE];
+    MatTranspose(F, FT, N_STATE);
+    MatMul(F, (const double*)P, FP, N_STATE);
+    MatMul(FP, FT, PPred, N_STATE);
+
+    // 构建过程噪声 Q (基于 jerk 驱动离散化，参考 Bar-Shalom)
+    // 对每个轴 i, Q 的 3×3 块 (pos_i, vel_i, acc_i) 为:
+    //   q * | dt^5/20  dt^4/8  dt^3/6 |
+    //       | dt^4/8   dt^3/3  dt^2/2 |
+    //       | dt^3/6   dt^2/2    dt   |
+    const double q = AdaptiveQ;
+    double Q[N_STATE * N_STATE];
+    FMemory::Memzero(Q, sizeof(Q));
+    for (int32 axis = 0; axis < 3; axis++)
+    {
+        const int32 p = axis;       // 位置索引
+        const int32 v = axis + 3;   // 速度索引
+        const int32 a = axis + 6;   // 加速度索引
+
+        Q[p * N_STATE + p] = q * dt5 / 20.0;
+        Q[p * N_STATE + v] = q * dt4 / 8.0;
+        Q[v * N_STATE + p] = q * dt4 / 8.0;
+        Q[p * N_STATE + a] = q * dt3 / 6.0;
+        Q[a * N_STATE + p] = q * dt3 / 6.0;
+        Q[v * N_STATE + v] = q * dt3 / 3.0;
+        Q[v * N_STATE + a] = q * dt2 / 2.0;
+        Q[a * N_STATE + v] = q * dt2 / 2.0;
+        Q[a * N_STATE + a] = q * dt;
+    }
+    MatAdd(PPred, Q, PPred, N_STATE);
+
+    // ======== 4) 计算残差 y = z - H*XPred ========
+    double y[N_OBS];
+    y[0] = ObservedPos.X - XPred[0];
+    y[1] = ObservedPos.Y - XPred[1];
+    y[2] = ObservedPos.Z - XPred[2];
+
+    // ======== 5) 残差协方差 S = H*PPred*H^T + R ========
+    // H = [I 0 0], 所以 S = PPred[0:3,0:3] + R*I
+    const double r = (double)RScale;
     double S[3][3];
-    for (int i = 0; i < 3; i++)                         // S = [PPred00 + r  PPred01      PPred02     ]
-        for (int j = 0; j < 3; j++)                     //     [PPred10      PPred11 + r  PPred12     ]
-            S[i][j] = PPred[i][j] + (i == j ? r : 0.0); //     [PPred20      PPred21      PPred22 + r ]
+    for (int32 i = 0; i < N_OBS; i++)
+        for (int32 j = 0; j < N_OBS; j++)
+            S[i][j] = PPred[i * N_STATE + j] + (i == j ? r : 0.0);
+
     double SInv[3][3];
     if (!MatInverse3(S, SInv)) return;
-    double K[6][3];
-    for (int i = 0; i < 6; i++)
-        for (int j = 0; j < 3; j++)
+
+    // ======== 6) 卡尔曼增益 K = PPred * H^T * S^-1  (9×3) ========
+    // K[i][j] = sum_k PPred[i][k] * H^T[k][j] * SInv  但 H^T 只在 k<3 时非零
+    // 所以 K[i][j] = sum_k PPred[i][k] * SInv[k][j], k=0..2
+    double K[N_STATE][N_OBS];
+    for (int32 i = 0; i < N_STATE; i++)
+        for (int32 j = 0; j < N_OBS; j++)
         {
             K[i][j] = 0.0;
-            for (int k = 0; k < 3; k++)
-                K[i][j] += PPred[i][k] * SInv[k][j];    // K = PPred * H^T * S⁻¹
+            for (int32 k = 0; k < N_OBS; k++)
+                K[i][j] += PPred[i * N_STATE + k] * SInv[k][j];
         }
-    for (int i = 0; i < 6; i++)
+
+    // ======== 7) 后验状态: X = XPred + K * y ========
+    for (int32 i = 0; i < N_STATE; i++)
     {
         X[i] = XPred[i];
-        for (int j = 0; j < 3; j++)
-            X[i] += K[i][j] * y[j];     // X = XPred + K * y
+        for (int32 j = 0; j < N_OBS; j++)
+            X[i] += K[i][j] * y[j];
     }
-    double KH[6][6];
-    FMemory::Memzero(KH, sizeof(KH));
-    for (int i = 0; i < 6; i++)
-        for (int j = 0; j < 3; j++)
-            KH[i][j] = K[i][j];     // KH 的前 3 列 = K
-    double I_KH[6][6];
-    MatIdentity6(I_KH);             // I
-    MatSub6(I_KH, KH, I_KH);        // I - KH
-    MatMul6(I_KH, PPred, P);        // P = (I - KH) * PPred
+
+    // ======== 8) 后验协方差: P = (I - K*H) * PPred ========
+    // KH (9×9) = K * H, 其中 H=[I 0 0], 所以 KH[i][j] = K[i][j] if j<3, else 0
+    double IMinusKH[N_STATE * N_STATE];
+    MatIdentity(IMinusKH, N_STATE);
+    for (int32 i = 0; i < N_STATE; i++)
+        for (int32 j = 0; j < N_OBS; j++)
+            IMinusKH[i * N_STATE + j] -= K[i][j];
+
+    double PNew[N_STATE * N_STATE];
+    MatMul(IMinusKH, PPred, PNew, N_STATE);
+    FMemory::Memcpy(P, PNew, sizeof(P));
+
+    // ======== 9) 自适应过程噪声 (EWMA 残差方差估计) ========
+    for (int32 i = 0; i < N_OBS; i++)
+    {
+        const double residSq = y[i] * y[i];
+        if (UpdateCount <= 2)
+        {
+            ResidualVariance[i] = residSq;
+        }
+        else
+        {
+            ResidualVariance[i] = AdaptiveAlpha * residSq
+                                + (1.0 - AdaptiveAlpha) * ResidualVariance[i];
+        }
+    }
+    // 计算新 Q：若残差方差远高于 R，说明目标在机动, 需要增大 Q
+    const double avgResidVar = (ResidualVariance[0] + ResidualVariance[1] + ResidualVariance[2]) / 3.0;
+    const double ratio = avgResidVar / FMath::Max(r, 0.001);
+    AdaptiveQ = FMath::Clamp(ratio * (double)QScale, AdaptiveQMin, AdaptiveQMax);
+
     UpdateCount++;
 }
 
-/**
- * @brief 基于匀速模型预测未来位置
- * @param dt 预测时间量
- * @return 预测的未来位置: pos + vel * dt
- */
+// ============================================================================
+//  预测 / 输出接口
+// ============================================================================
+
 FVector UKalmanPredictor::PredictPosition(float dt) const
 {
     if (!bInitialized) return FVector::ZeroVector;
+    const double t  = (double)dt;
+    const double t2 = t * t;
     return FVector(
-        X[0] + X[3] * dt,
-        X[1] + X[4] * dt,
-        X[2] + X[5] * dt
+        X[0] + X[3] * t + 0.5 * X[6] * t2,   // px + vx*t + 0.5*ax*t²
+        X[1] + X[4] * t + 0.5 * X[7] * t2,   // py + vy*t + 0.5*ay*t²
+        X[2] + X[5] * t + 0.5 * X[8] * t2    // pz + vz*t + 0.5*az*t²
     );
 }
 
-/** @brief 获取卡尔曼估计的目标速度 */
 FVector UKalmanPredictor::GetEstimatedVelocity() const
 {
     return FVector(X[3], X[4], X[5]);
 }
 
-/** @brief 获取卡尔曼估计的目标位置 */
 FVector UKalmanPredictor::GetEstimatedPosition() const
 {
     return FVector(X[0], X[1], X[2]);
 }
 
-/** @brief 获取位置估计的不确定性（位置协方差矩阵的迹） */
+FVector UKalmanPredictor::GetEstimatedAcceleration() const
+{
+    return FVector(X[6], X[7], X[8]);
+}
+
 float UKalmanPredictor::GetPositionUncertainty() const
 {
     return (float)(P[0][0] + P[1][1] + P[2][2]);
 }
 
-/** @brief 6×6 矩阵乘法: C = A * B */
-void UKalmanPredictor::MatMul6(const double A[6][6], const double B[6][6], double C[6][6])
+// ============================================================================
+//  N×N 通用矩阵工具函数
+// ============================================================================
+
+void UKalmanPredictor::MatMul(const double* A, const double* B, double* C, int32 Dim)
 {
-    double Temp[6][6];
-    for (int i = 0; i < 6; i++)
-        for (int j = 0; j < 6; j++)
+    // 使用临时缓冲区支持就地运算 (C == A 或 C == B)
+    double Temp[N_STATE * N_STATE];
+    for (int32 i = 0; i < Dim; i++)
+        for (int32 j = 0; j < Dim; j++)
         {
-            Temp[i][j] = 0.0;
-            for (int k = 0; k < 6; k++)
-                Temp[i][j] += A[i][k] * B[k][j];
+            Temp[i * Dim + j] = 0.0;
+            for (int32 k = 0; k < Dim; k++)
+                Temp[i * Dim + j] += A[i * Dim + k] * B[k * Dim + j];
         }
-    FMemory::Memcpy(C, Temp, sizeof(Temp));
+    FMemory::Memcpy(C, Temp, sizeof(double) * Dim * Dim);
 }
 
-/** @brief 6×6 矩阵转置: AT = A^T */
-void UKalmanPredictor::MatTranspose6(const double A[6][6], double AT[6][6])
+void UKalmanPredictor::MatTranspose(const double* A, double* AT, int32 Dim)
 {
-    for (int i = 0; i < 6; i++)
-        for (int j = 0; j < 6; j++)
-            AT[j][i] = A[i][j];
+    double Temp[N_STATE * N_STATE];
+    for (int32 i = 0; i < Dim; i++)
+        for (int32 j = 0; j < Dim; j++)
+            Temp[j * Dim + i] = A[i * Dim + j];
+    FMemory::Memcpy(AT, Temp, sizeof(double) * Dim * Dim);
 }
 
-/** @brief 6×6 矩阵加法: C = A + B */
-void UKalmanPredictor::MatAdd6(const double A[6][6], const double B[6][6], double C[6][6])
+void UKalmanPredictor::MatAdd(const double* A, const double* B, double* C, int32 Dim)
 {
-    for (int i = 0; i < 6; i++)
-        for (int j = 0; j < 6; j++)
-            C[i][j] = A[i][j] + B[i][j];
+    const int32 N = Dim * Dim;
+    for (int32 i = 0; i < N; i++)
+        C[i] = A[i] + B[i];
 }
 
-/** @brief 6×6 矩阵减法: C = A - B */
-void UKalmanPredictor::MatSub6(const double A[6][6], const double B[6][6], double C[6][6])
+void UKalmanPredictor::MatSub(const double* A, const double* B, double* C, int32 Dim)
 {
-    for (int i = 0; i < 6; i++)
-        for (int j = 0; j < 6; j++)
-            C[i][j] = A[i][j] - B[i][j];
+    const int32 N = Dim * Dim;
+    for (int32 i = 0; i < N; i++)
+        C[i] = A[i] - B[i];
 }
 
-/** @brief 构建 6×6 单位矩阵: A = I */
-void UKalmanPredictor::MatIdentity6(double A[6][6])
+void UKalmanPredictor::MatIdentity(double* A, int32 Dim)
 {
-    FMemory::Memzero(A, sizeof(double) * 36);
-    for (int i = 0; i < 6; i++) A[i][i] = 1.0;
+    FMemory::Memzero(A, sizeof(double) * Dim * Dim);
+    for (int32 i = 0; i < Dim; i++)
+        A[i * Dim + i] = 1.0;
 }
 
-/**
- * @brief 3×3 矩阵求逆
- * @param A 输入 3×3 矩阵
- * @param Ainv 输出逆矩阵
- * @return true 成功求逆; false 矩阵奇异
- * A⁻¹ = adj(A) / det(A)
- */
 bool UKalmanPredictor::MatInverse3(const double A[3][3], double Ainv[3][3])
 {
-    double det = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1])
-               - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0])
-               + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+    const double det = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1])
+                     - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0])
+                     + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
     if (FMath::Abs(det) < 1e-12) return false;
-    double invDet = 1.0 / det;
+
+    const double invDet = 1.0 / det;
     Ainv[0][0] = (A[1][1] * A[2][2] - A[1][2] * A[2][1]) * invDet;
     Ainv[0][1] = (A[0][2] * A[2][1] - A[0][1] * A[2][2]) * invDet;
     Ainv[0][2] = (A[0][1] * A[1][2] - A[0][2] * A[1][1]) * invDet;
