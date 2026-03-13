@@ -8,8 +8,10 @@
 class ACameraPawn;
 
 /**
- * @brief 智能体列表控件
- * 以 Slate 列表方式展示当前注册的 Agent，并将选中结果同步给观察相机。
+ * @brief Agent 列表 Slate 控件
+ *
+ * 在屏幕右上角显示所有已注册的 Agent，
+ * 点击某行后驱动 CameraPawn 跟随所选 Agent。
  */
 UCLASS()
 class GRADUATIONPROJECT_API UAgentListWidget : public UUserWidget
@@ -17,43 +19,31 @@ class GRADUATIONPROJECT_API UAgentListWidget : public UUserWidget
     GENERATED_BODY()
 
 public:
-    /**
-     * @brief 绑定相机 Pawn
-     * @param InCameraPawn 用于响应列表点击的相机实例
-     */
+    /** @brief 设置摄像机 Pawn 引用（用于点击后跟随） */
     void SetCameraPawn(ACameraPawn* InCameraPawn);
 
 protected:
-    /** @brief 重建底层 Slate 控件树 */
+    /** @brief 构建 Slate 控件树 */
     virtual TSharedRef<SWidget> RebuildWidget() override;
-
-    /** @brief 注册数据刷新回调并初始化列表内容 */
+    /** @brief 控件初始化：订阅 AgentManager 变更事件 */
     virtual void NativeConstruct() override;
-
-    /** @brief 解除回调绑定并清理控件状态 */
+    /** @brief 控件销毁：取消事件订阅 */
     virtual void NativeDestruct() override;
 
 private:
-    /** @brief 刷新列表数据源 */
-    void RefreshAgentList();
-
-    /** @brief 对列表项按类型和 ID 排序 */
-    void SortItems();
-
-    /** @brief 为列表项生成一行 Slate 视图 */
-    TSharedRef<ITableRow> HandleGenerateRow(UObject* Item, const TSharedRef<STableViewBase>& OwnerTable);
-
-    /** @brief 处理用户选中某个列表项后的相机切换 */
-    void HandleSelectionChanged(UObject* Item, ESelectInfo::Type SelectInfo);
+    /** @brief 从 AgentManager 重新加载 Agent 列表（增量更新） */
+    void ReloadAgentItems();
+    /** @brief 按类型优先级排序 Agent 列表项 */
+    void SortAgentItems();
+    /** @brief 为列表中每一行创建 Slate 控件 */
+    TSharedRef<ITableRow> BuildAgentRow(UObject* Item, const TSharedRef<STableViewBase>& OwnerTable);
+    /** @brief 用户选中某行时的回调，通知 CameraPawn 跟随 */
+    void HandleAgentSelected(UObject* Item, ESelectInfo::Type SelectInfo);
 
 private:
-    /** @brief 列表项数据缓存 */
     UPROPERTY(Transient)
-    TArray<UObject*> ListDataItems;
+    TArray<UObject*> AgentItems;                        ///< 列表数据源
 
-    /** @brief Slate 列表视图实例 */
-    TSharedPtr<SListView<UObject*>> AgentListView;
-
-    /** @brief 与列表联动的相机 Pawn */
-    TWeakObjectPtr<ACameraPawn> CameraPawn;
+    TSharedPtr<SListView<UObject*>> AgentListView;      ///< Slate 列表控件
+    TWeakObjectPtr<ACameraPawn> CameraPawn;              ///< 关联的摄像机 Pawn
 };

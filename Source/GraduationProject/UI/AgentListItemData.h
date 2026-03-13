@@ -6,7 +6,8 @@
 
 /**
  * @brief Agent 列表单项数据模型
- * 作为 Slate 列表中的轻量数据载体，保存智能体 ID、类型和对象弱引用。
+ * 作为 Slate 列表中的轻量数据载体，保存智能体 ID、类型和对象弱引用，
+ * 自身不拥有 Actor 生命周期，只负责给 UI 层提供可绑定的数据视图。
  */
 UCLASS()
 class GRADUATIONPROJECT_API UAgentListItemData : public UObject

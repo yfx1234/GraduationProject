@@ -5,12 +5,11 @@
 
 /**
  * @brief 无人机状态结构体
- * 包含：
- * - 位置 (X, Y, Z)
- * - 线速度 (Vx, Vy, Vz)
- * - 姿态四元数 (Qw, Qx, Qy, Qz)
- * - 角速度 (AngRollRate, AngPitchRate, AngYawRate)
- * - 电机转速 [4]
+ *   位置 (X, Y, Z)
+ *   线速度 (Vx, Vy, Vz)
+ *   姿态四元数 (Qw, Qx, Qy, Qz)
+ *   角速度 (AngRollRate, AngPitchRate, AngYawRate)
+ *   电机转速
  */
 USTRUCT(BlueprintType)
 struct GRADUATIONPROJECT_API FDroneState
@@ -115,7 +114,7 @@ struct GRADUATIONPROJECT_API FDroneState
      */
     FVector GetAngularVelocity() const { return FVector(AngRollRate, AngPitchRate, AngYawRate); }
     
-    /** @brief 归一化四元数，防止数值积分累积误差导致四元数偏离单位长度 */
+    /** @brief 归一化四元数 */
     void NormalizeQuaternion()
     {
         double Mag = FMath::Sqrt(Qw*Qw + Qx*Qx + Qy*Qy + Qz*Qz);
@@ -128,7 +127,6 @@ struct GRADUATIONPROJECT_API FDroneState
         }
         else
         {
-            // 四元数退化，重置为单位四元数
             Qw = 1.0; Qx = 0.0; Qy = 0.0; Qz = 0.0;
         }
     }

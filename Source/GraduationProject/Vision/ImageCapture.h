@@ -66,6 +66,9 @@ private:
     UPROPERTY()
     UTextureRenderTarget2D* RenderTarget;
 
-    /** @brief 创建并配置 `SceneCaptureComponent2D` 和 `RenderTarget` */
+    /**
+     * @brief 创建并配置内部采集链路
+     * 负责创建 RenderTarget、挂接捕获组件，并关闭逐帧采集以便按需读取。
+     */
     void SetupCapture();
 };

@@ -49,6 +49,7 @@ void USimClockService::Initialize(UWorld* World)
  */
 void USimClockService::SetTimeScale(float InTimeScale, UWorld* World)
 {
+    // 夹紧倍率范围，避免时间冻结或过大倍率导致仿真数值不稳定。
     TimeScale = FMath::Clamp(InTimeScale, 0.05f, 20.0f);
     if (World && World->GetWorldSettings())
     {
@@ -67,6 +68,7 @@ double USimClockService::GetSimTimeSec(UWorld* World) const
     {
         return 0.0;
     }
+
     return World->GetTimeSeconds() - StartWorldTimeSec;
 }
 

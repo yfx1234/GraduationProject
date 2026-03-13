@@ -6,15 +6,14 @@
 
 /**
  * @brief 单条异步命令执行记录
- * 记录命令所属智能体、调用函数、开始/结束时间以及当前状态，
- * 供状态查询、超时检测和录制系统复用。
+ * 记录命令所属智能体、调用函数、开始/结束时间以及当前状态
  */
 USTRUCT(BlueprintType)
 struct FCommandExecutionRecord
 {
     GENERATED_BODY()
 
-    /** @brief 命令唯一 ID，例如 `cmd_1` */
+    /** @brief 命令唯一 ID */
     UPROPERTY(BlueprintReadOnly)
     FString CommandId;
 
@@ -26,28 +25,24 @@ struct FCommandExecutionRecord
     UPROPERTY(BlueprintReadOnly)
     FString FunctionName;
 
-    /** @brief 当前状态：`queued`、`running`、`completed`、`failed`、`canceled` */
+    /** @brief 当前状态 */
     UPROPERTY(BlueprintReadOnly)
     FString Status = TEXT("queued");
 
-    /** @brief 附加说明信息，例如错误原因或完成提示 */
+    /** @brief 附加说明信息 */
     UPROPERTY(BlueprintReadOnly)
     FString Message;
 
-    /** @brief 命令开始执行时的墙钟时间（秒） */
+    /** @brief 命令开始执行时的时间（秒） */
     UPROPERTY(BlueprintReadOnly)
     double StartTimeSec = 0.0;
 
-    /** @brief 命令结束执行时的墙钟时间（秒） */
+    /** @brief 命令结束执行时的时间（秒） */
     UPROPERTY(BlueprintReadOnly)
     double EndTimeSec = 0.0;
 };
 
-/**
- * @brief 命令执行生命周期管理器
- * 负责为异步命令生成 ID、维护运行状态、处理取消/超时逻辑，
- * 并将关键事件写入 `SimulationRecorder` 便于回放与调试。
- */
+/** @brief 命令执行生命周期管理器 */
 UCLASS()
 class GRADUATIONPROJECT_API UCommandExecutionManager : public UObject
 {
@@ -80,7 +75,7 @@ public:
      * @brief 查询指定命令记录
      * @param CommandId 命令 ID
      * @param OutRecord 输出命令记录
-     * @return 找到命令时返回 `true`
+     * @return 找到命令时返回 true
      */
     bool GetCommand(const FString& CommandId, FCommandExecutionRecord& OutRecord) const;
 
@@ -88,7 +83,7 @@ public:
      * @brief 取消尚未完成的命令
      * @param CommandId 命令 ID
      * @param Reason 取消原因
-     * @return 命令可取消并已更新状态时返回 `true`
+     * @return 命令可取消并已更新状态时返回 true
      */
     bool CancelCommand(const FString& CommandId, const FString& Reason = TEXT("canceled"));
 
@@ -97,7 +92,7 @@ public:
      * @param CommandId 命令 ID
      * @param TimeoutSec 超时时间阈值，非正数表示不检查
      * @param OutRecord 输出命令记录
-     * @return 找到命令时返回 `true`
+     * @return 找到命令时返回 true
      */
     bool GetCommandWithTimeout(const FString& CommandId, double TimeoutSec, FCommandExecutionRecord& OutRecord);
 

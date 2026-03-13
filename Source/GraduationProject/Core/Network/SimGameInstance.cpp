@@ -1,4 +1,4 @@
-﻿#include "SimGameInstance.h"
+#include "SimGameInstance.h"
 #include "CommandRouter.h"
 #include "Common/TcpSocketBuilder.h"
 

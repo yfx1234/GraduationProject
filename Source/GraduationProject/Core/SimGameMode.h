@@ -5,31 +5,37 @@
 #include "../Drone/DronePawn.h"
 #include "SimGameMode.generated.h"
 
+/** @brief 单架无人机生成配置，定义 ID、位置、角色与起飞参数 */
 USTRUCT(BlueprintType)
 struct FDroneSpawnConfig
 {
     GENERATED_BODY()
 
+    /** @brief 无人机唯一 ID */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Simulation|Drone")
     FString DroneId = TEXT("drone_0");
 
-    // meters in simulation coordinates
+    /** @brief 生成位置（仿真坐标，单位：米） */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Simulation|Drone")
     FVector SpawnLocation = FVector(0.0f, 0.0f, 0.5f);
 
+    /** @brief 生成后是否自动起飞 */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Simulation|Drone")
     bool bAutoTakeoff = false;
 
+    /** @brief 自动起飞目标高度（米） */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Simulation|Drone")
     float TakeoffAltitude = 3.0f;
 
+    /** @brief 任务角色（目标机 / 拦截机 / 未知） */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Simulation|Drone")
     EDroneMissionRole MissionRole = EDroneMissionRole::Unknown;
 };
 
 /**
- * 智能体管理 — 负责生成/销毁无人机和转台
- * 仿真控制 — 暂停/恢复/重置仿真
+ * @brief 仿真 GameMode
+ * 智能体管理 — 负责生成 / 销毁无人机和转台
+ * 仿真控制 — 暂停 / 恢复 / 重置仿真
  * 默认 Pawn 和 HUD 配置
  */
 UCLASS()
@@ -115,6 +121,7 @@ private:
     UPROPERTY()
     APawn* SpawnedDrone = nullptr;
 
+    /** @brief 各 Agent 初始 Transform 快照（用于 ResetSimulation） */
     UPROPERTY()
     TMap<FString, FTransform> InitialAgentTransforms;
 };

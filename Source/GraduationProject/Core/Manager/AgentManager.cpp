@@ -1,12 +1,11 @@
-﻿#include "AgentManager.h"
+#include "AgentManager.h"
 
-/** @brief 定义UAgentManage单例实例静态成员，初始化为空指针 */
+/** @brief AgentManager 全局单例实例 */
 UAgentManager* UAgentManager::Instance = nullptr;
 
 /**
- * @brief 获取单例实例
- * @return AgentManager 实例
- * 首次调用时通过 NewObject 创建实例，并调用 AddToRoot() 防止被 UE 垃圾回收器回收。
+ * @brief 获取全局单例
+ * @return 管理器实例
  */
 UAgentManager* UAgentManager::GetInstance()
 {
@@ -19,25 +18,62 @@ UAgentManager* UAgentManager::GetInstance()
 }
 
 /**
- * @brief 注册智能体到管理器
- * @param AgentId 智能体唯一标识符
- * @param Agent 对应的 Actor 指针
- * 空指针或空 ID 会被直接忽略
- * 注册成功后广播 OnAgentListChanged
+ * @brief 注册一个智能体
+ * @param AgentId 智能体唯一 ID
+ * @param Agent   对应 Actor
  */
 void UAgentManager::RegisterAgent(const FString& AgentId, AActor* Agent)
 {
-    if (!Agent || AgentId.IsEmpty()) return;
-    if (AgentMap.Contains(AgentId)) UE_LOG(LogTemp, Warning, TEXT("[AgentManager] Agent '%s' already registered, updating... "), *AgentId);
-    AgentMap.Add(AgentId, Agent);       // 添加到映射表
-    OnAgentListChanged.Broadcast();     // 广播列表变更通知
+    if (!Agent || AgentId.IsEmpty())
+    {
+        return;
+    }
+
+    if (AgentMap.Contains(AgentId))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[AgentManager] Agent '%s' already registered, updating..."), *AgentId);
+    }
+
+    AgentMap.Add(AgentId, Agent);
+    OnAgentListChanged.Broadcast();
     UE_LOG(LogTemp, Log, TEXT("[AgentManager] Registered: %s (%s)"), *AgentId, *Agent->GetClass()->GetName());
 }
 
 /**
- * @brief 注销智能体
- * @param AgentId 要注销的智能体 ID
- * 从映射表中移除指定 ID 的智能体
+ * @brief 注册或复用某个 Actor 的 ID
+ * @param PreferredAgentId 期望 ID
+ * @param Agent            对应 Actor
+ * @return 最终使用的 ID
+ */
+FString UAgentManager::RegisterOrResolveAgent(const FString& PreferredAgentId, AActor* Agent)
+{
+    if (!Agent)
+    {
+        return PreferredAgentId;
+    }
+
+    FString ResolvedAgentId = FindAgentId(Agent);
+    if (ResolvedAgentId.IsEmpty())
+    {
+        ResolvedAgentId = PreferredAgentId;
+    }
+
+    if (ResolvedAgentId.IsEmpty())
+    {
+        return FString();
+    }
+
+    if (GetAgent(ResolvedAgentId) != Agent)
+    {
+        RegisterAgent(ResolvedAgentId, Agent);
+    }
+
+    return ResolvedAgentId;
+}
+
+/**
+ * @brief 注销一个智能体
+ * @param AgentId 目标 ID
  */
 void UAgentManager::UnregisterAgent(const FString& AgentId)
 {
@@ -49,9 +85,9 @@ void UAgentManager::UnregisterAgent(const FString& AgentId)
 }
 
 /**
- * @brief 按 ID 查找智能体
+ * @brief 按 ID 获取智能体
  * @param AgentId 智能体 ID
- * @return 对应的 Actor 指针，未找到返回 nullptr
+ * @return 对应 Actor；未命中时返回 nullptr
  */
 AActor* UAgentManager::GetAgent(const FString& AgentId) const
 {
@@ -60,8 +96,31 @@ AActor* UAgentManager::GetAgent(const FString& AgentId) const
 }
 
 /**
- * @brief 获取所有已注册智能体的 Actor 数组
- * @return Actor 指针数组
+ * @brief 反向查找 Actor 对应的 ID
+ * @param Agent 待查 Actor
+ * @return 找到的 ID；未找到时返回空串
+ */
+FString UAgentManager::FindAgentId(AActor* Agent) const
+{
+    if (!Agent)
+    {
+        return FString();
+    }
+
+    for (const TPair<FString, AActor*>& Pair : AgentMap)
+    {
+        if (Pair.Value == Agent)
+        {
+            return Pair.Key;
+        }
+    }
+
+    return FString();
+}
+
+/**
+ * @brief 获取所有已注册 Actor
+ * @return Actor 数组
  */
 TArray<AActor*> UAgentManager::GetAllAgents() const
 {
@@ -71,8 +130,8 @@ TArray<AActor*> UAgentManager::GetAllAgents() const
 }
 
 /**
- * @brief 获取所有已注册智能体的 ID 数组
- * @return ID 字符串数组
+ * @brief 获取所有已注册 ID
+ * @return ID 数组
  */
 TArray<FString> UAgentManager::GetAllAgentIds() const
 {
@@ -82,9 +141,9 @@ TArray<FString> UAgentManager::GetAllAgentIds() const
 }
 
 /**
- * @brief 清理单例实例
- * 清空映射表，从 Root 集合中移除，允许 GC 回收
- * 将 Instance 置 nullptr
+ * @brief 清理单例
+ *
+ * 仅清空映射并释放管理器自身，不回收场景中的 Actor。
  */
 void UAgentManager::Cleanup()
 {

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
@@ -14,6 +14,8 @@ class UTexture;
 class UTexture2D;
 class UTextureRenderTarget2D;
 class UAgentListWidget;
+class AActor;
+class APlayerController;
 
 /**
  * @brief 单个画中画窗口状态
@@ -48,7 +50,7 @@ struct FPipSlotState
     UPROPERTY(Transient)
     UTexture2D* ProcessedTexture = nullptr;
 
-    /** @brief 图像处理中复用的像素缓存 */
+    /** @brief 图像处理中用的像素缓存 */
     UPROPERTY(Transient)
     TArray<FColor> WorkingPixels;
 
@@ -103,6 +105,13 @@ private:
     /** @brief 创建并显示 Agent 列表控件 */
     void EnsureAgentListWidget();
 
+    /** @brief 解析当前 PlayerController */
+    APlayerController* ResolvePlayerController() const;
+    /** @brief 绑定 1/2/3 键到 PIP 窗口 */
+    void BindPipSlotKeys();
+    /** @brief 绑定 Ctrl+数字键到图像类型 */
+    void BindPipImageTypeKeys();
+
     /** @brief 快捷键：切换 PIP 1 */
     void OnHotkeyTogglePip1();
 
@@ -132,6 +141,8 @@ private:
 
     /** @brief 绘制 Agent 状态摘要 */
     void DrawAgentInfo(float& Y);
+    /** @brief 绘制单个 Agent 摘要行 */
+    void DrawAgentSummaryLine(const FString& AgentId, AActor* Agent, float X, float& Y);
 
     /** @brief 绘制制导状态摘要 */
     void DrawGuidanceInfo(float& Y);
@@ -147,9 +158,13 @@ private:
 
     /** @brief 绘制所有 PIP 窗口 */
     void DrawPipWindows();
+    /** @brief 绘制单个 PIP 窗口 */
+    void DrawPipSlot(int32 SlotIndex, FPipSlotState& Slot, float X, float Y);
 
     /** @brief 初始化 PIP 窗口默认状态 */
     void EnsurePipInitialized();
+    /** @brief 初始化单个 PIP 窗口 */
+    void InitializePipSlot(FPipSlotState& Slot, int32 DefaultImageType);
 
     /** @brief 在 Agent 集合变化后刷新 PIP 数据源 */
     void RefreshPipSourcesIfNeeded();
@@ -168,6 +183,10 @@ private:
 
     /** @brief 根据窗口配置生成当前需要显示的纹理 */
     UTexture* ResolvePipTexture(FPipSlotState& Slot);
+    /** @brief 获取非 Scene 图像的最大捕获尺寸 */
+    void GetNonSceneCaptureSizeLimits(AirSimImageUtils::EImageType ImageType, int32& OutMaxWidth, int32& OutMaxHeight) const;
+    /** @brief 判断缓存纹理是否仍可复用 */
+    bool CanReuseProcessedTexture(const FPipSlotState& Slot) const;
 
     /** @brief 把处理后的像素缓存上传到纹理 */
     bool UpdateSlotProcessedTexture(FPipSlotState& Slot, const TArray<FColor>& Pixels, int32 Width, int32 Height, AirSimImageUtils::EImageType SourceType);
@@ -183,7 +202,7 @@ private:
     UPROPERTY()
     TArray<FPipSlotState> PipSlots;
 
-    /** @brief 左侧 Agent 列表 UI */
+    /** @brief Agent 列表 UI */
     UPROPERTY(Transient)
     UAgentListWidget* AgentListWidget = nullptr;
 

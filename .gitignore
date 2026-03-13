@@ -11,3 +11,4 @@ Document/
 __pycache__/
 *.py[cod]
 PythonClient/Drone/snapshots/
+PythonClient/.ultralytics_config/

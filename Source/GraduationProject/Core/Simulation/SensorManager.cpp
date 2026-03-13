@@ -17,6 +17,7 @@ namespace
         Lower.ToLowerInline();
         if (Lower == TEXT("ned"))
         {
+            // 当前项目采用 UE 的 X/Y 不变、Z 取反来近似 NED 的 Down 方向。
             return FVector(ValueUE.X, ValueUE.Y, -ValueUE.Z);
         }
 
@@ -122,6 +123,7 @@ FString USensorManager::BuildDroneSensorJson(const FString& DroneId, UWorld* Wor
     const FRotator RotUE = Drone->CurrentState.GetRotator();
     const FRotator Rot = ConvertUEToFrameRotator(RotUE, Frame);
 
+    // 以项目默认场景原点为“家点”粗略映射经纬度，便于与外部工具统一字段格式。
     const double HomeLat = 31.3020;
     const double HomeLon = 120.5853;
     const double Lat = HomeLat + static_cast<double>(PosUE.Y) / 111111.0;

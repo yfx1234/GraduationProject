@@ -4,8 +4,8 @@
 #include "Styling/CoreStyle.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
-#include "Widgets/SOverlay.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/SOverlay.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Views/STableRow.h"
 #include "GraduationProject/Core/CameraPawn.h"
@@ -13,14 +13,11 @@
 #include "GraduationProject/Drone/DronePawn.h"
 #include "GraduationProject/Turret/TurretPawn.h"
 
+// ──── 匿名工具函数 ────
 namespace
 {
-    /**
-     * @brief 根据 Actor 实际类型生成列表显示类型
-     * @param Agent 智能体 Actor
-     * @return `drone`、`turret` 或 `actor`
-     */
-    FString DetectAgentType(AActor* Agent)
+    /** @brief 根据 Actor 类型返回字符串标签 */
+    FString GetAgentType(AActor* Agent)
     {
         if (Cast<ADronePawn>(Agent))
         {
@@ -33,32 +30,27 @@ namespace
         return TEXT("actor");
     }
 
-    /**
-     * @brief 计算列表排序优先级
-     * @param Data 列表项数据
-     * @return 数值越小，排序越靠前
-     * 默认将 `drone_0`、其他无人机、`turret_0`、其他炮台依次排前。
-     */
-    int32 GetAgentPriority(const UAgentListItemData* Data)
+    /** @brief Agent 排序优先级：drone_0 最高，其次 drone，再 turret，最后 actor */
+    int32 GetAgentPriority(const UAgentListItemData* ItemData)
     {
-        if (!Data)
+        if (!ItemData)
         {
             return 100;
         }
 
-        if (Data->AgentId.Equals(TEXT("drone_0"), ESearchCase::IgnoreCase))
+        if (ItemData->AgentId.Equals(TEXT("drone_0"), ESearchCase::IgnoreCase))
         {
             return 0;
         }
-        if (Data->AgentType == TEXT("drone"))
+        if (ItemData->AgentType == TEXT("drone"))
         {
             return 10;
         }
-        if (Data->AgentId.Equals(TEXT("turret_0"), ESearchCase::IgnoreCase))
+        if (ItemData->AgentId.Equals(TEXT("turret_0"), ESearchCase::IgnoreCase))
         {
             return 20;
         }
-        if (Data->AgentType == TEXT("turret"))
+        if (ItemData->AgentType == TEXT("turret"))
         {
             return 30;
         }
@@ -66,20 +58,17 @@ namespace
     }
 }
 
-/**
- * @brief 绑定用于联动的相机 Pawn
- * @param InCameraPawn 相机实例
- */
+// ──── 公开接口 ────
+
+/** @brief 注入摄像机 Pawn 引用 */
 void UAgentListWidget::SetCameraPawn(ACameraPawn* InCameraPawn)
 {
     CameraPawn = InCameraPawn;
 }
 
-/**
- * @brief 构建 Agent 列表 Slate 控件树
- * @return 根 Slate 控件
- * 列表固定停靠在右上角，包含标题、提示文本和单选列表视图。
- */
+// ──── Slate 构建 ────
+
+/** @brief 构建控件树：半透明背景面板 → 标题 + 副标题 + Agent 列表 */
 TSharedRef<SWidget> UAgentListWidget::RebuildWidget()
 {
     return SNew(SOverlay)
@@ -117,9 +106,9 @@ TSharedRef<SWidget> UAgentListWidget::RebuildWidget()
                     .FillHeight(1.0f)
                     [
                         SAssignNew(AgentListView, SListView<UObject*>)
-                        .ListItemsSource(&ListDataItems)
-                        .OnGenerateRow_UObject(this, &UAgentListWidget::HandleGenerateRow)
-                        .OnSelectionChanged_UObject(this, &UAgentListWidget::HandleSelectionChanged)
+                        .ListItemsSource(&AgentItems)
+                        .OnGenerateRow_UObject(this, &UAgentListWidget::BuildAgentRow)
+                        .OnSelectionChanged_UObject(this, &UAgentListWidget::HandleAgentSelected)
                         .SelectionMode(ESelectionMode::Single)
                     ]
                 ]
@@ -127,26 +116,22 @@ TSharedRef<SWidget> UAgentListWidget::RebuildWidget()
         ];
 }
 
-/**
- * @brief 初始化列表控件
- * 注册 Agent 列表变化回调，并立即执行一次初始刷新。
- */
+// ──── 生命周期 ────
+
+/** @brief 订阅 AgentManager 列表变更事件，并立即加载一次 */
 void UAgentListWidget::NativeConstruct()
 {
     Super::NativeConstruct();
 
     if (UAgentManager* Manager = UAgentManager::GetInstance())
     {
-        Manager->OnAgentListChanged.AddUObject(this, &UAgentListWidget::RefreshAgentList);
+        Manager->OnAgentListChanged.AddUObject(this, &UAgentListWidget::ReloadAgentItems);  // 监听 Agent 增删
     }
 
-    RefreshAgentList();
+    ReloadAgentItems();
 }
 
-/**
- * @brief 销毁列表控件
- * 解除对 `AgentManager` 事件的绑定，避免悬挂回调。
- */
+/** @brief 取消事件订阅，避免悬挂引用 */
 void UAgentListWidget::NativeDestruct()
 {
     if (UAgentManager* Manager = UAgentManager::GetInstance())
@@ -157,35 +142,38 @@ void UAgentListWidget::NativeDestruct()
     Super::NativeDestruct();
 }
 
-/**
- * @brief 对当前列表项执行稳定排序
- * 先按类型优先级排序，再按字符串 ID 排序。
- */
-void UAgentListWidget::SortItems()
-{
-    ListDataItems.Sort([](const UObject& A, const UObject& B)
-    {
-        const UAgentListItemData* ItemA = Cast<UAgentListItemData>(&A);
-        const UAgentListItemData* ItemB = Cast<UAgentListItemData>(&B);
+// ──── 数据管理 ────
 
-        const int32 PriorityA = GetAgentPriority(ItemA);
-        const int32 PriorityB = GetAgentPriority(ItemB);
-        if (PriorityA != PriorityB)
+/** @brief 按 GetAgentPriority 排序列表项，同优先级按 ID 字典序 */
+void UAgentListWidget::SortAgentItems()
+{
+    AgentItems.Sort([](const UObject& LeftItem, const UObject& RightItem)
+    {
+        const UAgentListItemData* LeftData = Cast<UAgentListItemData>(&LeftItem);
+        const UAgentListItemData* RightData = Cast<UAgentListItemData>(&RightItem);
+
+        const int32 LeftPriority = GetAgentPriority(LeftData);
+        const int32 RightPriority = GetAgentPriority(RightData);
+        if (LeftPriority != RightPriority)
         {
-            return PriorityA < PriorityB;
+            return LeftPriority < RightPriority;
         }
 
-        const FString IdA = ItemA ? ItemA->AgentId : TEXT("");
-        const FString IdB = ItemB ? ItemB->AgentId : TEXT("");
-        return IdA < IdB;
+        const FString LeftId = LeftData ? LeftData->AgentId : TEXT("");
+        const FString RightId = RightData ? RightData->AgentId : TEXT("");
+        return LeftId < RightId;
     });
 }
 
 /**
- * @brief 根据 `AgentManager` 当前状态刷新列表内容
- * 复用已存在的数据项，只有在新增、删除或类型变化时才触发列表重建。
+ * @brief 增量刷新 Agent 列表
+ *
+ * 1) 用 Actor 指针做映射索引已有条目
+ * 2) 遍历最新 ID，复用或新建条目
+ * 3) 移除已不存在的条目
+ * 4) 有变更时重新排序并刷新 UI
  */
-void UAgentListWidget::RefreshAgentList()
+void UAgentListWidget::ReloadAgentItems()
 {
     UAgentManager* Manager = UAgentManager::GetInstance();
     if (!Manager)
@@ -193,30 +181,31 @@ void UAgentListWidget::RefreshAgentList()
         return;
     }
 
-    const TArray<FString> LatestIds = Manager->GetAllAgentIds();
-    TMap<AActor*, UAgentListItemData*> ExistingByActor;
-    ExistingByActor.Reserve(ListDataItems.Num());
+    const TArray<FString> LatestIds = Manager->GetAllAgentIds();  // 当前所有 Agent ID
+    TMap<AActor*, UAgentListItemData*> ExistingItemsByActor;       // Actor→已有条目 映射
+    ExistingItemsByActor.Reserve(AgentItems.Num());
 
-    for (UObject* Item : ListDataItems)
+    for (UObject* Item : AgentItems)
     {
-        UAgentListItemData* Data = Cast<UAgentListItemData>(Item);
-        if (!Data)
+        UAgentListItemData* ItemData = Cast<UAgentListItemData>(Item);
+        if (!ItemData)
         {
             continue;
         }
 
-        if (AActor* Actor = Data->AgentActor.Get())
+        if (AActor* Agent = ItemData->AgentActor.Get())
         {
-            ExistingByActor.Add(Actor, Data);
+            ExistingItemsByActor.Add(Agent, ItemData);
         }
     }
 
-    TSet<AActor*> LatestActors;
-    bool bChanged = false;
+    TSet<AActor*> LatestActors;   // 当前帧存在的 Actor 集合
+    bool bChanged = false;         // 是否有增删改
 
-    for (const FString& Id : LatestIds)
+    // ── 第二步：遍历最新 Agent，复用或创建条目 ──
+    for (const FString& AgentId : LatestIds)
     {
-        AActor* Agent = Manager->GetAgent(Id);
+        AActor* Agent = Manager->GetAgent(AgentId);
         if (!IsValid(Agent))
         {
             continue;
@@ -224,48 +213,50 @@ void UAgentListWidget::RefreshAgentList()
 
         LatestActors.Add(Agent);
 
-        if (UAgentListItemData** FoundData = ExistingByActor.Find(Agent))
+        if (UAgentListItemData** FoundItem = ExistingItemsByActor.Find(Agent))
         {
-            UAgentListItemData* Data = *FoundData;
-            const FString NewType = DetectAgentType(Agent);
-            if (Data->AgentId != Id || Data->AgentType != NewType)
+            UAgentListItemData* ItemData = *FoundItem;
+            const FString NewType = GetAgentType(Agent);
+            if (ItemData->AgentId != AgentId || ItemData->AgentType != NewType)
             {
-                Data->AgentId = Id;
-                Data->AgentType = NewType;
+                ItemData->AgentId = AgentId;
+                ItemData->AgentType = NewType;
                 bChanged = true;
             }
             continue;
         }
 
-        UAgentListItemData* NewData = NewObject<UAgentListItemData>(this);
-        NewData->AgentId = Id;
-        NewData->AgentType = DetectAgentType(Agent);
-        NewData->AgentActor = Agent;
-        ListDataItems.Add(NewData);
+        UAgentListItemData* NewItem = NewObject<UAgentListItemData>(this);
+        NewItem->AgentId = AgentId;
+        NewItem->AgentType = GetAgentType(Agent);
+        NewItem->AgentActor = Agent;
+        AgentItems.Add(NewItem);
         bChanged = true;
     }
 
-    for (int32 Index = ListDataItems.Num() - 1; Index >= 0; --Index)
+    // ── 第三步：反向遍历移除已失效条目 ──
+    for (int32 Index = AgentItems.Num() - 1; Index >= 0; --Index)
     {
-        UAgentListItemData* Data = Cast<UAgentListItemData>(ListDataItems[Index]);
-        if (!Data)
+        UAgentListItemData* ItemData = Cast<UAgentListItemData>(AgentItems[Index]);
+        if (!ItemData)
         {
-            ListDataItems.RemoveAt(Index);
+            AgentItems.RemoveAt(Index);
             bChanged = true;
             continue;
         }
 
-        AActor* Actor = Data->AgentActor.Get();
-        if (!IsValid(Actor) || !LatestActors.Contains(Actor))
+        AActor* Agent = ItemData->AgentActor.Get();
+        if (!IsValid(Agent) || !LatestActors.Contains(Agent))
         {
-            ListDataItems.RemoveAt(Index);
+            AgentItems.RemoveAt(Index);
             bChanged = true;
         }
     }
 
+    // ── 第四步：有变更则排序并通知列表刷新 ──
     if (bChanged)
     {
-        SortItems();
+        SortAgentItems();
         if (AgentListView.IsValid())
         {
             AgentListView->RequestListRefresh();
@@ -273,17 +264,14 @@ void UAgentListWidget::RefreshAgentList()
     }
 }
 
-/**
- * @brief 生成单行列表项视图
- * @param Item 列表数据对象
- * @param OwnerTable 所属表格
- * @return Slate 行控件
- */
-TSharedRef<ITableRow> UAgentListWidget::HandleGenerateRow(UObject* Item, const TSharedRef<STableViewBase>& OwnerTable)
+// ──── 行构建与选择回调 ────
+
+/** @brief 为每行创建 "[type] agent_id" 格式的文本控件 */
+TSharedRef<ITableRow> UAgentListWidget::BuildAgentRow(UObject* Item, const TSharedRef<STableViewBase>& OwnerTable)
 {
-    const UAgentListItemData* Data = Cast<UAgentListItemData>(Item);
-    const FString Label = Data
-        ? FString::Printf(TEXT("[%s] %s"), *Data->AgentType, *Data->AgentId)
+    const UAgentListItemData* ItemData = Cast<UAgentListItemData>(Item);
+    const FString Label = ItemData
+        ? FString::Printf(TEXT("[%s] %s"), *ItemData->AgentType, *ItemData->AgentId)
         : TEXT("<invalid>");
 
     return SNew(STableRow<UObject*>, OwnerTable)
@@ -293,13 +281,8 @@ TSharedRef<ITableRow> UAgentListWidget::HandleGenerateRow(UObject* Item, const T
         ];
 }
 
-/**
- * @brief 处理列表选中变化
- * @param Item 当前选中的数据项
- * @param SelectInfo 选中来源
- * 若数据无效，则通知相机切回自由视角。
- */
-void UAgentListWidget::HandleSelectionChanged(UObject* Item, ESelectInfo::Type SelectInfo)
+/** @brief 用户选中行时通知 CameraPawn 跟随该 Agent */
+void UAgentListWidget::HandleAgentSelected(UObject* Item, ESelectInfo::Type SelectInfo)
 {
     ACameraPawn* Pawn = CameraPawn.Get();
     if (!Pawn)
@@ -307,12 +290,12 @@ void UAgentListWidget::HandleSelectionChanged(UObject* Item, ESelectInfo::Type S
         return;
     }
 
-    UAgentListItemData* Data = Cast<UAgentListItemData>(Item);
-    if (!Data)
+    UAgentListItemData* ItemData = Cast<UAgentListItemData>(Item);
+    if (!ItemData)
     {
         Pawn->OnItemClicked(TEXT(""), nullptr);
         return;
     }
 
-    Pawn->OnItemClicked(Data->AgentId, Data->AgentActor.Get());
+    Pawn->OnItemClicked(ItemData->AgentId, ItemData->AgentActor.Get());
 }

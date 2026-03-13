@@ -189,15 +189,8 @@ void UDroneMovementComponent::ComputeControlAllocation()
     GInv[3][0] = a; GInv[3][1] = b;  GInv[3][2] = -c; GInv[3][3] = -d;
 }
 
-/**
- * @brief 执行一帧的级联控制更新
- * @param DeltaTime 帧间隔
- * 根据控制模式更新推力力矩，再得到电机转速
- */
-void UDroneMovementComponent::ControlUpdate(double DeltaTime)
+void UDroneMovementComponent::SyncControllerTimeSteps(double ControlTimeStep)
 {
-    LastControlDeltaTime = DeltaTime;  // 保存帧时间供电机滤波器使用
-    double ControlTimeStep = FMath::Max(0.001, static_cast<double>(DeltaTime));
     if (PxController) PxController->SetTimeStep(ControlTimeStep);
     if (PyController) PyController->SetTimeStep(ControlTimeStep);
     if (PzController) PzController->SetTimeStep(ControlTimeStep);
@@ -210,6 +203,53 @@ void UDroneMovementComponent::ControlUpdate(double DeltaTime)
     if (RollRateController) RollRateController->SetTimeStep(ControlTimeStep);
     if (PitchRateController) PitchRateController->SetTimeStep(ControlTimeStep);
     if (YawRateController) YawRateController->SetTimeStep(ControlTimeStep);
+}
+
+void UDroneMovementComponent::UpdateDesiredYawFromPlanarVector(double DirX, double DirY, double CurrentYaw)
+{
+    const double DirectionMagnitude = FMath::Sqrt(DirX * DirX + DirY * DirY);
+
+    if (YawMode == EDroneYawMode::Angle)
+    {
+        DesiredYaw = CommandedYaw;
+        LockedYaw = DesiredYaw;
+        bYawInitialized = true;
+        return;
+    }
+
+    if (YawMode == EDroneYawMode::Hold || DrivetrainMode == EDroneDrivetrainMode::MaxDegreeOfFreedom)
+    {
+        if (!bYawInitialized)
+        {
+            LockedYaw = CurrentYaw;
+            bYawInitialized = true;
+        }
+        DesiredYaw = LockedYaw;
+        return;
+    }
+
+    if (DirectionMagnitude > YawSpeedThreshold)
+    {
+        DesiredYaw = FMath::Atan2(DirY, DirX) + FMath::DegreesToRadians(YawOffset);
+        LockedYaw = DesiredYaw;
+        bYawInitialized = true;
+        return;
+    }
+
+    DesiredYaw = bYawInitialized ? LockedYaw : CurrentYaw;
+}
+
+/**
+ * @brief 执行一帧的级联控制更新
+ * @param DeltaTime 帧间隔
+ * 根据控制模式更新推力力矩，再得到电机转速
+ */
+void UDroneMovementComponent::ControlUpdate(double DeltaTime)
+{
+    LastControlDeltaTime = DeltaTime;  // 保存帧时间供电机滤波器使用
+    const double ControlTimeStep = FMath::Max(0.001, static_cast<double>(DeltaTime));
+    SyncControllerTimeSteps(ControlTimeStep);
+
     FVector TorqueCommand = FVector::ZeroVector;
     double ThrustCommand = Parameters.Mass * Parameters.Gravity;
     switch (CurrentControlMode)
@@ -219,42 +259,9 @@ void UDroneMovementComponent::ControlUpdate(double DeltaTime)
         return;
     case EDroneControlMode::Position:
         {
-            // 计算自动偏航：从当前位置到目标位置的方向（稳定，不产生反馈环）
-            FVector Pos = CurrentState.GetPosition();
-            double DirX = TargetPosition.X - Pos.X;
-            double DirY = TargetPosition.Y - Pos.Y;
-            double DirMag = FMath::Sqrt(DirX * DirX + DirY * DirY);
-            double CurrentYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
-
-            if (YawMode == EDroneYawMode::Angle)
-            {
-                DesiredYaw = CommandedYaw;
-                LockedYaw = DesiredYaw;
-                bYawInitialized = true;
-            }
-            else if (YawMode == EDroneYawMode::Hold || DrivetrainMode == EDroneDrivetrainMode::MaxDegreeOfFreedom)
-            {
-                if (!bYawInitialized)
-                {
-                    LockedYaw = CurrentYaw;
-                    bYawInitialized = true;
-                }
-                DesiredYaw = LockedYaw;
-            }
-            else if (DirMag > YawSpeedThreshold)
-            {
-                DesiredYaw = FMath::Atan2(DirY, DirX) + FMath::DegreesToRadians(YawOffset);
-                LockedYaw = DesiredYaw;
-                bYawInitialized = true;
-            }
-            else if (bYawInitialized)
-            {
-                DesiredYaw = LockedYaw;
-            }
-            else
-            {
-                DesiredYaw = CurrentYaw;
-            }
+            const FVector Pos = CurrentState.GetPosition();
+            const double CurrentYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
+            UpdateDesiredYawFromPlanarVector(TargetPosition.X - Pos.X, TargetPosition.Y - Pos.Y, CurrentYaw);
 
             FVector VelCmd = PositionLoop(TargetPosition);
             FVector AccCmd = VelocityLoop(VelCmd, ThrustCommand);
@@ -264,39 +271,8 @@ void UDroneMovementComponent::ControlUpdate(double DeltaTime)
         break;
     case EDroneControlMode::Velocity:
         {
-            // 计算自动偏航：从目标速度方向（稳定，不产生反馈环）
-            double VelMag = FMath::Sqrt(TargetVelocity.X * TargetVelocity.X + TargetVelocity.Y * TargetVelocity.Y);
-            double CurrentYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
-
-            if (YawMode == EDroneYawMode::Angle)
-            {
-                DesiredYaw = CommandedYaw;
-                LockedYaw = DesiredYaw;
-                bYawInitialized = true;
-            }
-            else if (YawMode == EDroneYawMode::Hold || DrivetrainMode == EDroneDrivetrainMode::MaxDegreeOfFreedom)
-            {
-                if (!bYawInitialized)
-                {
-                    LockedYaw = CurrentYaw;
-                    bYawInitialized = true;
-                }
-                DesiredYaw = LockedYaw;
-            }
-            else if (VelMag > YawSpeedThreshold)
-            {
-                DesiredYaw = FMath::Atan2(TargetVelocity.Y, TargetVelocity.X) + FMath::DegreesToRadians(YawOffset);
-                LockedYaw = DesiredYaw;
-                bYawInitialized = true;
-            }
-            else if (bYawInitialized)
-            {
-                DesiredYaw = LockedYaw;
-            }
-            else
-            {
-                DesiredYaw = CurrentYaw;
-            }
+            const double CurrentYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
+            UpdateDesiredYawFromPlanarVector(TargetVelocity.X, TargetVelocity.Y, CurrentYaw);
 
             FVector AccCmd = VelocityLoop(TargetVelocity, ThrustCommand);
             FVector AngVelCmd = AttitudeLoop(AccCmd);

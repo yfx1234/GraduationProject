@@ -50,6 +50,7 @@ bool USimulationRecorder::Start(const FString& InPath)
         FinalPath = Dir / FString::Printf(TEXT("record_%s.jsonl"), *FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S")));
     }
 
+    // 先写入一条元信息头，保证文件一创建就可以作为合法 JSONL 流被后处理脚本消费。
     const FString Header = FString::Printf(TEXT("{\"type\":\"meta\",\"started_at\":\"%s\"}\n"), *FDateTime::UtcNow().ToIso8601());
     if (!FFileHelper::SaveStringToFile(Header, *FinalPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM, &IFileManager::Get(), EFileWrite::FILEWRITE_None))
     {

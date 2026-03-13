@@ -1,4 +1,8 @@
-"""Client entry for GradSim."""
+"""GradSim TCP 客户端入口。
+
+该模块负责维护底层 Socket 生命周期、发送 JSON 请求、增量解析服务端响应，
+并向上层脚本暴露暂停/恢复仿真、查询智能体列表等常用接口。
+"""
 
 import json
 import socket
@@ -7,9 +11,10 @@ import time
 
 
 class TCPClient:
-    """Owns the socket and performs JSON request/response I/O."""
+    """GradSim 的 TCP 请求/响应客户端。"""
 
     def __init__(self, host="127.0.0.1", port=9000, timeout=5.0, auto_connect=True):
+        """配置目标地址，并按需在构造时立即建立连接。"""
         self.host = host
         self.ip = host
         self.port = int(port)
@@ -22,9 +27,11 @@ class TCPClient:
 
     @property
     def connected(self):
+        """当前是否已经持有可用的 TCP Socket。"""
         return self.socket is not None
 
     def connect(self):
+        """建立到模拟器 TCP 服务的连接。"""
         try:
             if self.socket:
                 try:
@@ -45,6 +52,7 @@ class TCPClient:
             return False
 
     def close(self):
+        """关闭连接，并清空所有尚未消费的接收缓存。"""
         with self._send_lock:
             if self.socket:
                 try:
@@ -57,6 +65,7 @@ class TCPClient:
     disconnect = close
 
     def _extract_json_from_buffer(self):
+        """尝试从接收缓冲区中解析出一个完整 JSON 对象。"""
         if not self._recv_buffer:
             return None
 
@@ -71,6 +80,7 @@ class TCPClient:
             return None
 
         leading_chars = len(text) - len(stripped)
+        # `raw_decode` 可以在同一缓冲区里只消费一个 JSON，适合处理粘包场景。
         decoder = json.JSONDecoder()
         try:
             obj, idx = decoder.raw_decode(stripped)
@@ -84,6 +94,7 @@ class TCPClient:
         return obj
 
     def _recv_json(self):
+        """接收并返回一个完整 JSON 对象；失败时返回结构化错误。"""
         if not self.socket:
             return {"status": "error", "message": "Not connected"}
 
@@ -111,6 +122,7 @@ class TCPClient:
         return {"status": "error", "message": "Empty response"}
 
     def request(self, payload):
+        """发送一条请求，并同步等待对应响应。"""
         with self._send_lock:
             if not self.socket:
                 return {"status": "error", "message": "Not connected"}
@@ -126,32 +138,41 @@ class TCPClient:
                 return {"status": "error", "message": str(exc)}
 
     def send_message(self, payload):
+        """兼容旧代码的别名，内部仍然直接转发到 ``request``。"""
         return self.request(payload)
 
     def ping(self):
+        """检测服务端是否在线且可以正常应答。"""
         return self.request({"ping": {}})
 
     def sim_pause(self):
+        """暂停 UE 端仿真时钟。"""
         return self.request({"sim_pause": {}})
 
     def sim_resume(self):
+        """恢复 UE 端仿真时钟。"""
         return self.request({"sim_resume": {}})
 
     def sim_step(self, steps=1, dt=0.01):
+        """在暂停状态下按固定步长推进仿真。"""
         return self.request({"sim_step": {"steps": int(max(1, steps)), "dt": float(dt)}})
 
     def sim_reset(self):
+        """请求模拟器执行整体重置。"""
         return self.request({"sim_reset": {}})
 
     def get_agent_list(self):
+        """获取智能体注册表的原始响应。"""
         return self.request({"get_agent_list": {}})
 
     def get_agents(self):
+        """提取并返回智能体 ID 列表。"""
         response = self.get_agent_list()
         agents = response.get("agents", []) if isinstance(response, dict) else []
         return [str(agent_id) for agent_id in agents if isinstance(agent_id, str) and agent_id]
 
     def get_agents_detail(self):
+        """提取并返回更详细的智能体信息列表。"""
         response = self.get_agent_list()
         detail = response.get("agents_detail", []) if isinstance(response, dict) else []
         return detail if isinstance(detail, list) else []

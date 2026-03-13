@@ -258,6 +258,8 @@ protected:
 
     /** @brief 重置所有控制器内部状态 */
     void ResetAllControllers();
+    void SyncControllerTimeSteps(double ControlTimeStep);
+    void UpdateDesiredYawFromPlanarVector(double DirX, double DirY, double CurrentYaw);
 
     /**
      * @brief 将角度归一化到 [-PI, PI]

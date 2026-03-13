@@ -1,4 +1,4 @@
-﻿#include "GuidanceMethods.h"
+#include "GuidanceMethods.h"
 #include "ITargetPredictor.h"
 
 /**
@@ -16,7 +16,8 @@ static FGuidanceOutput DirToAngles(const FVector& AimDir, const FVector& AimPoin
         Out.bValid = false;
         return Out;
     }
-    FRotator Rot = AimDir.GetSafeNormal().Rotation();
+
+    const FRotator Rot = AimDir.GetSafeNormal().Rotation();
     Out.Pitch = Rot.Pitch;
     Out.Yaw = Rot.Yaw;
     Out.AimPoint = AimPoint;
@@ -32,9 +33,9 @@ static FGuidanceOutput DirToAngles(const FVector& AimDir, const FVector& AimPoin
  */
 FGuidanceOutput FDirectAiming::ComputeAim(const FGuidanceInput& Input)
 {
-    FVector AimDir = Input.TargetPos - Input.MuzzlePos;
-    float Dist = AimDir.Size();
-    float FlightTime = (Input.MuzzleSpeed > 0.0f) ? (Dist / (Input.MuzzleSpeed * 100.0f)) : 0.0f;
+    const FVector AimDir = Input.TargetPos - Input.MuzzlePos;
+    const float Dist = AimDir.Size();
+    const float FlightTime = (Input.MuzzleSpeed > 0.0f) ? (Dist / (Input.MuzzleSpeed * 100.0f)) : 0.0f;
     return DirToAngles(AimDir, Input.TargetPos, FlightTime);
 }
 
@@ -61,27 +62,31 @@ void FProportionalNavigation::Reset()
  */
 FGuidanceOutput FProportionalNavigation::ComputeAim(const FGuidanceInput& Input)
 {
-    FVector LOS = Input.TargetPos - Input.MuzzlePos;
-    float Dist = LOS.Size();
-    float FlightTime = (Input.MuzzleSpeed > 0.0f) ? (Dist / (Input.MuzzleSpeed * 100.0f)) : 0.0f;
+    const FVector LOS = Input.TargetPos - Input.MuzzlePos;
+    const float Dist = LOS.Size();
+    const float FlightTime = (Input.MuzzleSpeed > 0.0f) ? (Dist / (Input.MuzzleSpeed * 100.0f)) : 0.0f;
+
+    // 首帧还没有 LOS 变化率可用，直接退化为当前视线瞄准。
     if (!bHasLastLOS)
     {
         LastLOS = LOS;
         bHasLastLOS = true;
         return DirToAngles(LOS, Input.TargetPos, FlightTime);
     }
+
     FVector LOSRate = FVector::ZeroVector;
     if (Input.DeltaTime > KINDA_SMALL_NUMBER)
     {
         LOSRate = (LOS - LastLOS) / Input.DeltaTime;
     }
-    FVector AimDir = LOS + N * LOSRate * FlightTime;
-    FVector AimPoint = Input.MuzzlePos + AimDir;
+
+    const FVector AimDir = LOS + N * LOSRate * FlightTime;
+    const FVector AimPoint = Input.MuzzlePos + AimDir;
     LastLOS = LOS;
     return DirToAngles(AimDir, AimPoint, FlightTime);
 }
 
-/** @brief 卡尔曼预测制导构造函数 */
+/** @brief 预测制导构造函数 */
 FPredictiveGuidance::FPredictiveGuidance(ITargetPredictor* Predictor, int32 Iterations)
     : KalmanPredictor(Predictor)
     , MaxIterations(Iterations)
@@ -89,7 +94,7 @@ FPredictiveGuidance::FPredictiveGuidance(ITargetPredictor* Predictor, int32 Iter
 }
 
 /**
- * @brief 卡尔曼预测制导
+ * @brief 预测制导
  * @param Input 制导输入数据
  * @return FGuidanceOutput 瞄准输出
  */
@@ -97,20 +102,24 @@ FGuidanceOutput FPredictiveGuidance::ComputeAim(const FGuidanceInput& Input)
 {
     if (!KalmanPredictor || !KalmanPredictor->IsInitialized())
     {
-        FVector AimDir = Input.TargetPos - Input.MuzzlePos;
-        float Dist = AimDir.Size();
-        float FlightTime = (Input.MuzzleSpeed > 0.0f) ? (Dist / (Input.MuzzleSpeed * 100.0f)) : 0.0f;
+        const FVector AimDir = Input.TargetPos - Input.MuzzlePos;
+        const float Dist = AimDir.Size();
+        const float FlightTime = (Input.MuzzleSpeed > 0.0f) ? (Dist / (Input.MuzzleSpeed * 100.0f)) : 0.0f;
         return DirToAngles(AimDir, Input.TargetPos, FlightTime);
     }
-    float MuzzleSpeedCm = Input.MuzzleSpeed * 100.0f;
+
+    const float MuzzleSpeedCm = Input.MuzzleSpeed * 100.0f;
     FVector PredPos = Input.TargetPos;
     float FlightTime = 0.0f;
-    for (int32 Iter = 0; Iter < MaxIterations; Iter++)
+
+    // 交替迭代“飞行时间 -> 预测目标位置”，逐步逼近拦截时刻的目标位置。
+    for (int32 Iter = 0; Iter < MaxIterations; ++Iter)
     {
-        float Dist = FVector::Dist(Input.MuzzlePos, PredPos);
+        const float Dist = FVector::Dist(Input.MuzzlePos, PredPos);
         FlightTime = (MuzzleSpeedCm > 0.0f) ? (Dist / MuzzleSpeedCm) : 0.0f;
         PredPos = KalmanPredictor->PredictPosition(FlightTime);
     }
-    FVector AimDir = PredPos - Input.MuzzlePos;
+
+    const FVector AimDir = PredPos - Input.MuzzlePos;
     return DirToAngles(AimDir, PredPos, FlightTime);
 }

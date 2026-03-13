@@ -1,4 +1,4 @@
-﻿#include "PDController.h"
+#include "PDController.h"
 
 UPDController::UPDController(): 
     Kp(1.0),                // 比例增益
@@ -12,7 +12,7 @@ UPDController::UPDController():
     PreviousError(0.0),     // 上一次的误差值
     PreviousErrorRate(0.0)  // 上一次的误差变化率
 {
-}
+} // 括号留空因为所有的底层分配活计都在初始化列表被执行完毕了
 
 /**
  * @brief 初始化控制器参数并重置内部状态
@@ -73,7 +73,7 @@ void UPDController::SetParameters(double NewKp, double NewKd, double NewDiffFilt
     Kd = NewKd;
     DiffFilterTau = FMath::Clamp(NewDiffFilterTau, 0.001, 1.0);
     OutputLimit = FMath::Max(0.0, NewOutputLimit);
-    SetTimeStep(TimeStep); // 重新计算滤波器系数
+    SetTimeStep(TimeStep); 
 }
 
 /**
