@@ -1,26 +1,51 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from .AgentBase import AgentBase
 
 
 class AgentGuidance(AgentBase):
-    def __init__(self, client, actor_id: str = "guidance_0", classname: str = "GuidanceActor", label: str = "Guidance") -> None:
-        super().__init__(client=client, actor_id=actor_id, classname=classname, label=label, spawn_unit="m")
+    def __init__(
+        self,
+        client,
+        actor_id: str = "guidance_0",
+        classname: str = "GuidanceActor",
+        label: str = "Guidance",
+    ) -> None:
+        super().__init__(
+            client=client,
+            actor_id=actor_id,
+            classname=classname,
+            label=label,
+            unit="m",
+        )
+
+    @staticmethod
+    def _set_if_not_none(params: Dict[str, Any], key: str, value: Any) -> None:
+        if value is not None:
+            params[key] = value
+
+    def _call_json(self, function_name: str, dict_args: Optional[Dict[str, Any]] = None):
+        return self.call_function(
+            function_name,
+            expect_return=True,
+            dict_args=dict_args,
+            parse_return_json=True,
+        )
 
     def get_state(self):
-        return self.call_json("GetState")
+        return self._call_json("GetState")
 
     state = get_state
 
     def reset(self):
-        return self.call_json("ResetGuidance")
+        return self._call_json("ResetGuidance")
 
     def set_method(self, method: str, nav_constant: float = 4.0, iterations: int = 3):
-        return self.call_json(
+        return self._call_json(
             "SetMethod",
-            named_parameters={
+            dict_args={
                 "Method": str(method),
                 "NavConstant": float(nav_constant),
                 "Iterations": int(iterations),
@@ -35,21 +60,16 @@ class AgentGuidance(AgentBase):
         lead_time: Optional[float] = None,
         capture_radius: Optional[float] = None,
     ):
-        params = {}
-        if method:
-            params["Method"] = str(method)
-        if speed is not None:
-            params["Speed"] = float(speed)
-        if nav_gain is not None:
-            params["NavGain"] = float(nav_gain)
-        if lead_time is not None:
-            params["LeadTime"] = float(lead_time)
-        if capture_radius is not None:
-            params["CaptureRadiusValue"] = float(capture_radius)
-        return self.call_json("SetInterceptMethod", named_parameters=params)
+        params: Dict[str, Any] = {}
+        self._set_if_not_none(params, "Method", str(method) if method else None)
+        self._set_if_not_none(params, "Speed", float(speed) if speed is not None else None)
+        self._set_if_not_none(params, "NavGain", float(nav_gain) if nav_gain is not None else None)
+        self._set_if_not_none(params, "LeadTime", float(lead_time) if lead_time is not None else None)
+        self._set_if_not_none(params, "CaptureRadiusValue", float(capture_radius) if capture_radius is not None else None)
+        return self._call_json("SetInterceptMethod", dict_args=params)
 
     def list_intercept_agents(self):
-        return self.call_json("ListInterceptAgents")
+        return self._call_json("ListInterceptAgents")
 
     def auto_intercept(
         self,
@@ -62,39 +82,35 @@ class AgentGuidance(AgentBase):
         capture_radius: Optional[float] = None,
         stop_on_capture: bool = True,
     ):
-        params = {
+        params: Dict[str, Any] = {
             "InterceptorId": str(interceptor_id),
             "TargetId": str(target_id),
             "bStopOnCapture": bool(stop_on_capture),
         }
-        if method:
-            params["Method"] = str(method)
-        if speed is not None:
-            params["Speed"] = float(speed)
-        if nav_gain is not None:
-            params["NavGain"] = float(nav_gain)
-        if lead_time is not None:
-            params["LeadTime"] = float(lead_time)
-        if capture_radius is not None:
-            params["CaptureRadiusValue"] = float(capture_radius)
-        return self.call_json("AutoIntercept", named_parameters=params)
+        self._set_if_not_none(params, "Method", str(method) if method else None)
+        self._set_if_not_none(params, "Speed", float(speed) if speed is not None else None)
+        self._set_if_not_none(params, "NavGain", float(nav_gain) if nav_gain is not None else None)
+        self._set_if_not_none(params, "LeadTime", float(lead_time) if lead_time is not None else None)
+        self._set_if_not_none(params, "CaptureRadiusValue", float(capture_radius) if capture_radius is not None else None)
+        return self._call_json("AutoIntercept", dict_args=params)
 
     def set_kalman_params(self, process_noise: float = 1.0, measurement_noise: float = 0.5):
-        return self.call_json(
+        return self._call_json(
             "SetKalmanParams",
-            named_parameters={
+            dict_args={
                 "ProcessNoise": float(process_noise),
                 "MeasurementNoise": float(measurement_noise),
             },
         )
 
     def visual_intercept_start(self, **payload):
-        params = {
+        params: Dict[str, Any] = {
             "InterceptorId": str(payload.get("interceptor_id", "")),
             "TargetId": str(payload.get("target_id", "")),
             "Method": str(payload.get("method", "vision_pid_kalman")),
         }
-        mapping = {
+
+        field_map = {
             "desired_area": "DesiredArea",
             "capture_area": "CaptureArea",
             "center_tol_x": "CenterTolX",
@@ -114,14 +130,15 @@ class AgentGuidance(AgentBase):
             "search_cam_pitch_deg": "SearchCamPitchDeg",
             "search_vz_amp": "SearchVzAmp",
         }
-        for key, target_key in mapping.items():
-            if key in payload and payload[key] is not None:
-                params[target_key] = payload[key]
+        for source_key, target_key in field_map.items():
+            self._set_if_not_none(params, target_key, payload.get(source_key))
+
         if "stop_on_capture" in payload:
             params["StopOnCaptureFlag"] = 1 if payload["stop_on_capture"] else 0
         if "use_kalman" in payload and payload["use_kalman"] is not None:
             params["UseKalmanFlag"] = 1 if payload["use_kalman"] else 0
-        return self.call_json("VisualInterceptStart", named_parameters=params)
+
+        return self._call_json("VisualInterceptStart", dict_args=params)
 
     def visual_intercept_update(
         self,
@@ -138,9 +155,9 @@ class AgentGuidance(AgentBase):
         interceptor_id: str,
         target_id: str,
     ):
-        return self.call_json(
+        return self._call_json(
             "VisualInterceptUpdate",
-            named_parameters={
+            dict_args={
                 "HasDetection": 1 if has_detection else 0,
                 "Cx": float(cx),
                 "Cy": float(cy),
@@ -156,10 +173,13 @@ class AgentGuidance(AgentBase):
         )
 
     def visual_intercept_stop(self, interceptor_id: str = "", target_id: str = ""):
-        return self.call_json(
+        return self._call_json(
             "VisualInterceptStop",
-            named_parameters={"InterceptorId": str(interceptor_id), "TargetId": str(target_id)},
+            dict_args={
+                "InterceptorId": str(interceptor_id),
+                "TargetId": str(target_id),
+            },
         )
 
     def visual_intercept_state(self):
-        return self.call_json("VisualInterceptState")
+        return self._call_json("VisualInterceptState")

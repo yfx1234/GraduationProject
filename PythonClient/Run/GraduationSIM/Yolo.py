@@ -7,7 +7,6 @@ from typing import List, Optional
 
 from .DataTypes import DetectionCandidate, DetectionResult
 
-
 class YoloDetector:
     def __init__(
         self,

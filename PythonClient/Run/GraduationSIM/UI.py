@@ -7,7 +7,6 @@ except ImportError:
 
 from .DataTypes import DetectionResult, GuidanceState, ImagePacket, TrajectoryReference
 
-
 class VisualUI:
     def __init__(self, show: bool = True, window_name: str = "graduation_visual_intercept") -> None:
         self.show = bool(show)

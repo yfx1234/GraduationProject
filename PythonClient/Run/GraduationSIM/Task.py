@@ -1,23 +1,40 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import math
 import time
-from typing import Optional, Tuple
+from types import SimpleNamespace
+from typing import Any, Optional, Tuple
 
 from .AgentBase import AgentBase
 from .AgentDrone import DEFAULT_DRONE_CLASS, AgentDrone
 from .AgentGuidance import AgentGuidance
-from .DataTypes import DetectionResult, GuidanceState, TaskConfig, TaskResult, TrajectoryReference
+from .DataTypes import DetectionResult, GuidanceState, TrajectoryReference
 from .TCPClient import TCPClient
 from .Trajectory import TrajectoryFactory
 from .UI import VisualUI
 from .Yolo import YoloDetector
 
 
+def _namespace(value: Any) -> Any:
+    if isinstance(value, dict):
+        return SimpleNamespace(**{key: _namespace(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return [_namespace(item) for item in value]
+    return value
+
+
+def _task_result(exit_reason: str, captured: bool = False, last_response: Optional[dict] = None) -> dict:
+    return {
+        "exit_reason": exit_reason,
+        "captured": bool(captured),
+        "last_response": last_response or {},
+    }
+
+
 class Task:
-    def __init__(self, config: TaskConfig, view: Optional[VisualUI] = None) -> None:
-        self.config = config
-        self.view = view or VisualUI(show=config.runtime.show, window_name=config.runtime.window_name)
+    def __init__(self, config: dict[str, Any], view: Optional[VisualUI] = None) -> None:
+        self.config = _namespace(config)
+        self.view = view or VisualUI(show=self.config.runtime.show, window_name=self.config.runtime.window_name)
         self.client: Optional[TCPClient] = None
         self.interceptor_agent: Optional[AgentDrone] = None
         self.target_agent: Optional[AgentDrone] = None
@@ -53,7 +70,7 @@ class Task:
         if self.client is None:
             return
         response = AgentBase.unwrap_response(
-            self.client.request({"remove_actor": {"actor_id": actor_id}}),
+            self.client.send_message({"remove_actor": {"actor_id": actor_id}}),
             "remove_actor_return",
         )
         if self._ok(response):
@@ -64,7 +81,7 @@ class Task:
         drone.label = drone_config.label
 
         primary_class = drone_config.classname or DEFAULT_DRONE_CLASS
-        response = drone.create_raw(
+        response = drone.create(
             pose=drone_config.spawn_pose,
             classname=primary_class,
             label=drone_config.label,
@@ -75,7 +92,7 @@ class Task:
 
         if primary_class != "DronePawn":
             print(f"[WARN] spawn with '{primary_class}' failed: {response}")
-            fallback_response = drone.create_raw(
+            fallback_response = drone.create(
                 pose=drone_config.spawn_pose,
                 classname="DronePawn",
                 label=drone_config.label,
@@ -122,19 +139,55 @@ class Task:
             self._ensure_removed(actor_id)
         time.sleep(0.2)
 
+    def _state_ready(self, response) -> bool:
+        if self._ok(response):
+            return True
+        if not isinstance(response, dict):
+            return False
+        for key in ("position", "velocity", "orientation", "api_control", "state", "mode", "enabled"):
+            if key in response:
+                return True
+        return False
+
+    def _wait_actor_ready(
+        self,
+        actor,
+        label: str,
+        frame: Optional[str] = None,
+        timeout_s: float = 5.0,
+    ) -> bool:
+        deadline = time.time() + max(0.5, timeout_s)
+        last_response = {}
+        while time.time() < deadline:
+            try:
+                if frame is None:
+                    response = actor.get_state()
+                else:
+                    response = actor.get_state(frame=frame)
+            except Exception as exc:
+                last_response = {"status": "error", "message": str(exc)}
+            else:
+                last_response = response if isinstance(response, dict) else {"raw": response}
+                if self._state_ready(response):
+                    print(f"[INFO] {label} ready")
+                    return True
+            time.sleep(0.2)
+        print(f"[ERROR] {label} not ready: {last_response}")
+        return False
+
     def _verify_spawned_agents(self) -> bool:
-        if self.client is None:
+        if self.guidance_agent is None or self.interceptor_agent is None or self.target_agent is None:
             return False
-        time.sleep(0.3)
-        current_ids = set(self.client.get_agents())
         actor_ids = self._actor_ids()
-        missing = [actor_id for actor_id in actor_ids.values() if actor_id not in current_ids]
-        if missing:
-            print(f"[ERROR] spawned actors missing in registry: {missing}, current={sorted(current_ids)}")
-            return False
         print(
             f"[INFO] guidance={actor_ids['guidance']}, interceptor={actor_ids['interceptor']}, target={actor_ids['target']}"
         )
+        if not self._wait_actor_ready(self.guidance_agent, "guidance"):
+            return False
+        if not self._wait_actor_ready(self.interceptor_agent, "interceptor", frame="ue"):
+            return False
+        if not self._wait_actor_ready(self.target_agent, "target", frame="ue"):
+            return False
         return True
 
     def _takeoff_pair(self) -> bool:
@@ -195,12 +248,12 @@ class Task:
             for label, created, actor in self._iter_runtime_actors():
                 if not created or actor is None:
                     continue
-                response = self._try_call(actor.remove_raw)
+                response = self._try_call(actor.remove)
                 if response is not None:
                     print(f"[INFO] remove {label}: {response}")
 
         if self.client is not None:
-            self.client.close()
+            self.client.disconnect()
 
     def _connect_runtime(self) -> bool:
         self.client = TCPClient(
@@ -208,16 +261,9 @@ class Task:
             port=self.config.connection.port,
             timeout=self.config.connection.timeout,
             auto_connect=False,
-            auto_reconnect=self.config.connection.auto_reconnect,
-            reconnect_delay_s=self.config.connection.reconnect_delay_s,
         )
         if not self.client.connect():
             print("[ERROR] cannot connect to simulator")
-            return False
-        ping_response = self.client.ping()
-        if not self._ok(ping_response):
-            print(f"[ERROR] ping failed: {ping_response}")
-            self.client.close()
             return False
 
         self.interceptor_agent = AgentDrone(
@@ -316,7 +362,7 @@ class Task:
             "search_vz_amp",
             "use_kalman",
         ):
-            value = getattr(visual, key)
+            value = getattr(visual, key, None)
             if value is not None:
                 payload[key] = value
 
@@ -390,7 +436,7 @@ class Task:
         detection = self.detector.detect_bgr(frame)
         return frame, detection
 
-    def _run_intercept_loop(self, trajectory, loop_dt: float) -> TaskResult:
+    def _run_intercept_loop(self, trajectory, loop_dt: float) -> dict:
         assert self.interceptor_agent is not None
         assert self.target_agent is not None
         assert self.guidance_agent is not None
@@ -416,14 +462,14 @@ class Task:
 
             if elapsed > max_time:
                 print("[INFO] timeout reached")
-                return TaskResult(exit_reason="timeout", captured=False, last_response=last_response)
+                return _task_result("timeout", captured=False, last_response=last_response)
 
             move_resp, target_pos, target_ref = self._send_target_reference(self.config.trajectory.lead_time + elapsed, trajectory)
             if not self._ok(move_resp):
                 move_error_count += 1
                 print(f"[WARN] target reference failed ({move_error_count}/{max_transient_errors}): {move_resp}")
                 if move_error_count >= max_transient_errors:
-                    return TaskResult(exit_reason="error: target reference failed", captured=False, last_response=last_response)
+                    return _task_result("error: target reference failed", captured=False, last_response=last_response)
                 time.sleep(0.2)
                 continue
             move_error_count = 0
@@ -431,13 +477,12 @@ class Task:
             image_packet = self.interceptor_agent.get_image_packet(
                 image_type=self.config.runtime.image_type,
                 quality=self.config.runtime.image_quality,
-                max_depth_m=self.config.runtime.max_depth_m,
             )
             if image_packet is None:
                 image_error_count += 1
                 print(f"[WARN] image fetch failed ({image_error_count}/{max_transient_errors})")
                 if image_error_count >= max_transient_errors:
-                    return TaskResult(exit_reason="error: image fetch failed", captured=False, last_response=last_response)
+                    return _task_result("error: image fetch failed", captured=False, last_response=last_response)
                 time.sleep(0.2)
                 continue
             image_error_count = 0
@@ -461,7 +506,7 @@ class Task:
                 update_error_count += 1
                 print(f"[WARN] visual_intercept_update failed ({update_error_count}/{max_transient_errors}): {update_response}")
                 if update_error_count >= max_transient_errors:
-                    return TaskResult(exit_reason="error: visual_intercept_update failed", captured=False, last_response=last_response)
+                    return _task_result("error: visual_intercept_update failed", captured=False, last_response=last_response)
                 time.sleep(0.2)
                 continue
             update_error_count = 0
@@ -508,15 +553,15 @@ class Task:
                 frame=frame,
             )
             if vis_exit is not None:
-                return TaskResult(exit_reason=vis_exit, captured=captured, last_response=last_response)
+                return _task_result(vis_exit, captured=captured, last_response=last_response)
             if captured:
-                return TaskResult(exit_reason="intercepted", captured=True, last_response=last_response)
+                return _task_result("intercepted", captured=True, last_response=last_response)
 
             sleep_s = loop_dt - (time.time() - tick_start)
             if sleep_s > 0:
                 time.sleep(sleep_s)
 
-    def run(self) -> TaskResult:
+    def run(self) -> dict:
         if self.view.show and not self.view.available():
             print("[WARN] opencv-python not installed, visualization disabled")
             self.view.show = False
@@ -526,11 +571,11 @@ class Task:
         except Exception as exc:
             self.exit_reason = f"error: {exc}"
             print(f"[ERROR] {exc}")
-            return TaskResult(exit_reason=self.exit_reason)
+            return _task_result(self.exit_reason)
 
         if not self._connect_runtime():
             self.exit_reason = "error: cannot connect"
-            return TaskResult(exit_reason=self.exit_reason)
+            return _task_result(self.exit_reason)
 
         assert self.guidance_agent is not None
         assert self.interceptor_agent is not None
@@ -538,38 +583,40 @@ class Task:
 
         try:
             self._clean_existing_actors()
-            self.created_guidance = self.guidance_agent.create(
+            guidance_response = self.guidance_agent.create(
                 pose=self.config.guidance.spawn_pose,
                 classname=self.config.guidance.classname,
                 label=self.config.guidance.label,
             )
+            self.created_guidance = self._ok(guidance_response)
             if not self.created_guidance:
+                print(f"[ERROR] guidance spawn failed: {guidance_response}")
                 self.exit_reason = "error: guidance spawn failed"
-                return TaskResult(exit_reason=self.exit_reason)
+                return _task_result(self.exit_reason)
 
             self.created_interceptor = self._spawn_drone(self.interceptor_agent, self.config.interceptor)
             if not self.created_interceptor:
                 self.exit_reason = "error: interceptor spawn failed"
-                return TaskResult(exit_reason=self.exit_reason)
+                return _task_result(self.exit_reason)
 
             self.created_target = self._spawn_drone(self.target_agent, self.config.target)
             if not self.created_target:
                 self.exit_reason = "error: target spawn failed"
-                return TaskResult(exit_reason=self.exit_reason)
+                return _task_result(self.exit_reason)
 
             if not self._verify_spawned_agents():
                 self.exit_reason = "error: spawned actors missing in registry"
-                return TaskResult(exit_reason=self.exit_reason)
+                return _task_result(self.exit_reason)
             if not self._takeoff_pair():
                 self.exit_reason = "error: takeoff or altitude wait failed"
-                return TaskResult(exit_reason=self.exit_reason)
+                return _task_result(self.exit_reason)
 
             try:
                 trajectory = self._build_trajectory()
             except Exception as exc:
                 self.exit_reason = f"error: {exc}"
                 print(f"[ERROR] {exc}")
-                return TaskResult(exit_reason=self.exit_reason)
+                return _task_result(self.exit_reason)
 
             loop_dt = 1.0 / max(2.0, float(self.config.runtime.hz))
             description = trajectory.describe()
@@ -585,23 +632,23 @@ class Task:
             lead_error = self._run_target_lead_phase(trajectory, loop_dt)
             if lead_error is not None:
                 self.exit_reason = lead_error
-                return TaskResult(exit_reason=self.exit_reason)
+                return _task_result(self.exit_reason)
 
             if not self._start_visual_intercept():
                 self.exit_reason = "error: visual intercept start failed"
-                return TaskResult(exit_reason=self.exit_reason)
+                return _task_result(self.exit_reason)
 
             self.view.open()
             result = self._run_intercept_loop(trajectory, loop_dt)
-            self.exit_reason = result.exit_reason
-            print(f"[RESULT] {result.to_dict()}")
+            self.exit_reason = result["exit_reason"]
+            print(f"[RESULT] {result}")
             print(f"[INFO] exit reason: {self.exit_reason}")
             return result
         finally:
             self._cleanup_runtime()
 
 
-def run_task(config: TaskConfig) -> TaskResult:
+def run_task(config: dict[str, Any]) -> dict:
     return Task(config).run()
 
 

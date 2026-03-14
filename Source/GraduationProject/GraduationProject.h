@@ -1,5 +1,7 @@
+// 解释：使用 `#pragma once` 防止该头文件在编译过程中被重复包含。
 #pragma once
 
+// 解释：引入 Unreal 的核心基础头文件，提供常用容器、数学类型和日志宏。
 #include "CoreMinimal.h"
 
 /**

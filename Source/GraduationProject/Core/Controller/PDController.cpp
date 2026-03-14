@@ -12,7 +12,7 @@ UPDController::UPDController():
     PreviousError(0.0),     // 上一次的误差值
     PreviousErrorRate(0.0)  // 上一次的误差变化率
 {
-} // 括号留空因为所有的底层分配活计都在初始化列表被执行完毕了
+}
 
 /**
  * @brief 初始化控制器参数并重置内部状态
@@ -52,12 +52,19 @@ double UPDController::Update(double TargetValue, double CurrentValue, bool bRese
     double ErrorRate = DiffFilterAlpha * (Error - PreviousError) + DiffFilterBeta * PreviousErrorRate;
     double Output = Kp * Error + Kd * ErrorRate;
     if (OutputLimit > 0.0)
+    // 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
     {
+        // 解释：这一行按照控制律合成当前控制输出。
         Output = FMath::Clamp(Output, -OutputLimit, OutputLimit);
+    // 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
     }
+    // 解释：这一行把右侧表达式的结果写入 `PreviousError`，完成 上一时刻误差 的更新。
     PreviousError = Error;
+    // 解释：这一行把右侧表达式的结果写入 `PreviousErrorRate`，完成 上一时刻误差变化率 的更新。
     PreviousErrorRate = ErrorRate;
+    // 解释：这一行返回当前函数的计算结果，把控制权交回调用方。
     return Output;
+// 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
 }
 
 /**
@@ -67,13 +74,21 @@ double UPDController::Update(double TargetValue, double CurrentValue, bool bRese
  * @param NewDiffFilterTau 新的微分滤波时间常数
  * @param NewOutputLimit 新的输出限幅值
  */
+// 解释：这一行定义函数 `SetParameters`，开始实现set参数的具体逻辑。
 void UPDController::SetParameters(double NewKp, double NewKd, double NewDiffFilterTau, double NewOutputLimit)
+// 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
 {
+    // 解释：这一行把右侧表达式的结果写入 `Kp`，完成 比例增益 Kp 的更新。
     Kp = NewKp;
+    // 解释：这一行把右侧表达式的结果写入 `Kd`，完成 微分增益 Kd 的更新。
     Kd = NewKd;
+    // 解释：这一行先对计算结果做限幅，再写入 `DiffFilterTau`，防止 微分滤波时间常数 τ 超出允许范围。
     DiffFilterTau = FMath::Clamp(NewDiffFilterTau, 0.001, 1.0);
+    // 解释：这一行通过 `FMath::Max` 给 `OutputLimit` 施加下界约束，避免 输出限幅值 过小。
     OutputLimit = FMath::Max(0.0, NewOutputLimit);
+    // 解释：调用 `SetTimeStep` 执行当前步骤需要的功能逻辑。
     SetTimeStep(TimeStep); 
+// 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
 }
 
 /**
@@ -83,20 +98,32 @@ void UPDController::SetParameters(double NewKp, double NewKd, double NewDiffFilt
  *  α = 2 / (2τ + T)
  *  β = (2τ - T) / (2τ + T)
  */
+// 解释：这一行定义函数 `SetTimeStep`，开始实现settimestep的具体逻辑。
 void UPDController::SetTimeStep(double NewTimeStep)
+// 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
 {
+    // 解释：这一行通过 `FMath::Max` 给 `TimeStep` 施加下界约束，避免 采样时间步长 过小。
     TimeStep = FMath::Max(0.001, NewTimeStep);
+    // 解释：这一行声明成员或局部变量 `Tau`，用于保存tau。
     double Tau = DiffFilterTau;
+    // 解释：这一行根据 α = 2 / (2τ + T) 计算微分滤波器系数 α。
     DiffFilterAlpha = 2.0 / (2.0 * Tau + TimeStep);
+    // 解释：这一行根据 β = (2τ - T) / (2τ + T) 计算微分滤波器系数 β。
     DiffFilterBeta = (2.0 * Tau - TimeStep) / (2.0 * Tau + TimeStep);
+// 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
 }
 
 /**
  * @brief 重置控制器内部状态
  * 将上一步误差和误差变化率清零。
  */
+// 解释：这一行定义函数 `Reset`，开始实现reset的具体逻辑。
 void UPDController::Reset()
+// 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
 {
+    // 解释：这一行把右侧表达式的结果写入 `PreviousError`，完成 上一时刻误差 的更新。
     PreviousError = 0.0;
+    // 解释：这一行把右侧表达式的结果写入 `PreviousErrorRate`，完成 上一时刻误差变化率 的更新。
     PreviousErrorRate = 0.0;
+// 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
 }
