@@ -1,902 +1,683 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-import argparse
 import base64
 import json
 import math
 import random
-import re
+import shutil
 import time
-from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, Dict, Optional, Tuple
 
 try:
     import cv2
 except ImportError:
     cv2 = None
 
-try:
-    import numpy as np
-except ImportError:
-    np = None
-
-from GraduationSIM import (
-    DEFAULT_DRONE_CLASS,
-    AgentBase,
-    AgentDrone,
-    AutoLabel,
-    DroneSnapshot,
-    ImagePacket,
-    Pose,
-    TCPClient,
-)
+from GraduationSIM import DEFAULT_DRONE_CLASS, AgentBase, AgentDrone, AutoLabel, DroneSnapshot, ImagePacket, Pose, TCPClient
 
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
 
-def _namespace(value: Any) -> Any:
-    if isinstance(value, dict):
-        return SimpleNamespace(**{key: _namespace(item) for key, item in value.items()})
-    if isinstance(value, list):
-        return [_namespace(item) for item in value]
-    return value
+
+def ok(resp):
+    return AgentBase.is_ok(resp)
 
 
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_jsonable(item) for item in value]
-    if isinstance(value, tuple):
-        return [_jsonable(item) for item in value]
-    if isinstance(value, SimpleNamespace):
-        return {key: _jsonable(item) for key, item in vars(value).items()}
-    if hasattr(value, "to_dict"):
-        return value.to_dict()
-    return value
-
-
-def _collection_result(session_dir: str, exit_reason: str, saved_frames: int = 0, labeled_frames: int = 0, empty_frames: int = 0, last_response: Optional[dict] = None) -> dict:
-    return {
-        "session_dir": session_dir,
-        "exit_reason": exit_reason,
-        "saved_frames": saved_frames,
-        "labeled_frames": labeled_frames,
-        "empty_frames": empty_frames,
-        "last_response": last_response or {},
-    }
-
-
-class _Waypoint:
-    # Sampled target waypoint.
-    def __init__(
-        self,
-        position: Tuple[float, float, float],
-        speed: float,
-        yaw_deg: float,
-        expires_at: float,
-    ) -> None:
-        self.position = position
-        self.speed = float(speed)
-        self.yaw_deg = float(yaw_deg)
-        self.expires_at = float(expires_at)
-
-
-class _Composition:
-    # Sampled framing parameters.
-    def __init__(
-        self,
-        desired_distance: float,
-        azimuth_deg: float,
-        relative_altitude: float,
-        body_yaw_bias_deg: float,
-        frame_yaw_bias_deg: float,
-        frame_pitch_bias_deg: float,
-        expires_at: float,
-    ) -> None:
-        self.desired_distance = float(desired_distance)
-        self.azimuth_deg = float(azimuth_deg)
-        self.relative_altitude = float(relative_altitude)
-        self.body_yaw_bias_deg = float(body_yaw_bias_deg)
-        self.frame_yaw_bias_deg = float(frame_yaw_bias_deg)
-        self.frame_pitch_bias_deg = float(frame_pitch_bias_deg)
-        self.expires_at = float(expires_at)
-
-
-def _ok(response) -> bool:
-    return AgentBase.is_ok(response)
-
-
-def _clamp(value: float, lo: float, hi: float) -> float:
+def clamp(value, lo, hi):
     return max(lo, min(hi, value))
 
 
-def _wrap_deg(angle_deg: float) -> float:
-    return (float(angle_deg) + 180.0) % 360.0 - 180.0
+def wrap_deg(value):
+    return (float(value) + 180.0) % 360.0 - 180.0
 
 
-def _distance(a, b) -> float:
-    dx = float(a[0]) - float(b[0])
-    dy = float(a[1]) - float(b[1])
-    dz = float(a[2]) - float(b[2])
-    return math.sqrt(dx * dx + dy * dy + dz * dz)
+def snapshot(drone):
+    return DroneSnapshot.from_state(drone.get_state(frame="ue"))
 
 
-def _distance_bins(distance_min: float, distance_max: float, count: int = 5):
-    lo = max(1.0, float(distance_min))
-    hi = max(lo + 1.0, float(distance_max))
-    if count < 2:
-        return [(lo, hi)]
-    ratio = hi / lo
-    edges = [lo]
-    for index in range(1, count):
-        edges.append(lo * (ratio ** (index / float(count))))
-    edges.append(hi)
-    return [(edges[i], max(edges[i] + 0.5, edges[i + 1])) for i in range(len(edges) - 1)]
-
-
-def _resolve_path(root: Path, path_text: str) -> Path:
-    path = Path(path_text)
-    if not path.is_absolute():
-        path = root / path
-    return path.resolve()
-
-
-def _snapshot(drone: AgentDrone) -> DroneSnapshot:
-    response = drone.get_state(frame="ue")
-    return DroneSnapshot.from_state(response if isinstance(response, dict) else {})
-
-
-def _wait_for_altitude(drone: AgentDrone, altitude: float, timeout_s: float = 20.0, tolerance_m: float = 0.8) -> bool:
-    deadline = time.time() + max(1.0, timeout_s)
-    while time.time() < deadline:
-        if _snapshot(drone).position[2] >= float(altitude) - tolerance_m:
+def wait_altitude(drone, altitude, timeout_s=20.0, tolerance_m=0.8):
+    end = time.time() + timeout_s
+    while time.time() < end:
+        if snapshot(drone).position[2] >= float(altitude) - tolerance_m:
             return True
         time.sleep(0.25)
     return False
 
 
-def _ensure_removed(client: TCPClient, actor_id: str) -> None:
-    response = AgentBase.unwrap_response(client.send_message({"remove_actor": {"actor_id": actor_id}}), "remove_actor_return")
-    if _ok(response):
-        print(f"[INFO] removed existing actor: {actor_id}")
+def clear_path(path, keep_dir=False):
+    if not path.exists():
+        return
+    if path.is_dir():
+        for child in list(path.iterdir()):
+            clear_path(child, keep_dir=False)
+        if not keep_dir:
+            try:
+                path.chmod(stat.S_IWRITE | stat.S_IREAD)
+            except OSError:
+                pass
+            path.rmdir()
+        return
+    try:
+        path.chmod(stat.S_IWRITE | stat.S_IREAD)
+    except OSError:
+        pass
+    path.unlink()
 
 
-def _spawn_drone(drone: AgentDrone, drone_config) -> bool:
-    drone.mission_role = drone_config.role
-    drone.label = drone_config.label
-    primary_class = drone_config.classname or DEFAULT_DRONE_CLASS
-    response = drone.create(pose=drone_config.spawn_pose, classname=primary_class, label=drone_config.label)
-    if _ok(response):
-        return True
-    if primary_class != "DronePawn":
-        fallback = drone.create(pose=drone_config.spawn_pose, classname="DronePawn", label=drone_config.label)
-        if _ok(fallback):
-            print("[WARN] fallback class 'DronePawn' used")
-            return True
-    print(f"[ERROR] spawn failed for {drone.actor_id}: {response}")
-    return False
+def reset_collection_output(dataset_root, results_root):
+    for rel in (
+        ("images", "train"),
+        ("images", "val"),
+        ("labels", "train"),
+        ("labels", "val"),
+        ("metadata",),
+        ("segmentation",),
+    ):
+        clear_path(dataset_root.joinpath(*rel), keep_dir=True)
+    for cache_path in dataset_root.glob("labels/*.cache"):
+        clear_path(cache_path)
+    clear_path(results_root / "collect_summary.json")
 
 
-def _sample_waypoint(config, rng: random.Random, current_position, now_s: float) -> _Waypoint:
-    bounds = config.random_bounds
-    position = (
-        rng.uniform(bounds.x_min, bounds.x_max),
-        rng.uniform(bounds.y_min, bounds.y_max),
-        rng.uniform(bounds.z_min, bounds.z_max),
-    )
-    speed = rng.uniform(config.target_speed_min, config.target_speed_max)
-    dx = position[0] - float(current_position[0])
-    dy = position[1] - float(current_position[1])
-    yaw_deg = math.degrees(math.atan2(dy, dx)) if (abs(dx) + abs(dy)) > 1e-6 else 0.0
-    return _Waypoint(position=position, speed=speed, yaw_deg=yaw_deg, expires_at=now_s + max(2.0, float(config.waypoint_timeout_s)))
-
-
-def _sample_composition(config, rng: random.Random, bins, pending_bins, now_s: float) -> _Composition:
-    if not pending_bins:
-        pending_bins.extend(range(len(bins)))
-        rng.shuffle(pending_bins)
-    lo, hi = bins[pending_bins.pop()]
-    desired_distance = rng.uniform(lo, hi)
-    near_scale = 1.0 if desired_distance >= 10.0 else max(0.35, desired_distance / 10.0)
-    return _Composition(
-        desired_distance=desired_distance,
-        azimuth_deg=rng.uniform(-160.0, 160.0),
-        relative_altitude=rng.uniform(config.relative_altitude_min, config.relative_altitude_max),
-        body_yaw_bias_deg=rng.uniform(-config.body_yaw_bias_max_deg, config.body_yaw_bias_max_deg) * near_scale,
-        frame_yaw_bias_deg=rng.uniform(-config.frame_yaw_bias_max_deg, config.frame_yaw_bias_max_deg) * near_scale,
-        frame_pitch_bias_deg=rng.uniform(-config.frame_pitch_bias_max_deg, config.frame_pitch_bias_max_deg) * near_scale,
-        expires_at=now_s + rng.uniform(config.composition_hold_min_s, config.composition_hold_max_s),
-    )
-
-
-def _build_follow_command(config, composition: _Composition, target: DroneSnapshot, collector: DroneSnapshot):
-    target_pos = np.array(target.position, dtype=float)
-    collector_pos = np.array(collector.position, dtype=float)
-    target_vel = np.array(target.velocity, dtype=float)
-
-    forward_xy = np.array(target.velocity[:2], dtype=float)
-    if float(np.linalg.norm(forward_xy)) < 1.0:
-        forward_xy = collector_pos[:2] - target_pos[:2]
-    if float(np.linalg.norm(forward_xy)) < 1e-3:
-        forward_xy = np.array([1.0, 0.0], dtype=float)
-    forward_xy = forward_xy / max(1e-6, float(np.linalg.norm(forward_xy)))
-    side_xy = np.array([-forward_xy[1], forward_xy[0]], dtype=float)
-    azimuth_rad = math.radians(composition.azimuth_deg)
-    radial_xy = (-math.cos(azimuth_rad) * forward_xy) + (math.sin(azimuth_rad) * side_xy)
-
-    desired_position = target_pos.copy()
-    desired_position[0] += radial_xy[0] * composition.desired_distance
-    desired_position[1] += radial_xy[1] * composition.desired_distance
-    desired_position[2] += composition.relative_altitude
-
-    velocity_cmd = (desired_position - collector_pos) * np.array([0.9, 0.9, 0.75], dtype=float) + target_vel * np.array([0.45, 0.45, 0.20], dtype=float)
-    los_vector = target_pos - collector_pos
-    los_distance = float(np.linalg.norm(los_vector))
-    if los_distance < max(2.5, config.distance_min * 0.7):
-        away = collector_pos - target_pos
-        away_norm = float(np.linalg.norm(away))
-        if away_norm > 1e-6:
-            velocity_cmd += (away / away_norm) * (0.55 * config.interceptor_max_speed)
-
-    speed = float(np.linalg.norm(velocity_cmd))
-    if speed > config.interceptor_max_speed:
-        velocity_cmd *= config.interceptor_max_speed / max(1e-6, speed)
-
-    horiz = math.hypot(float(los_vector[0]), float(los_vector[1]))
-    los_yaw = math.degrees(math.atan2(float(los_vector[1]), float(los_vector[0])))
-    los_pitch = math.degrees(math.atan2(float(los_vector[2]), max(1e-6, horiz)))
-    body_yaw = _wrap_deg(los_yaw + composition.body_yaw_bias_deg)
-    camera_yaw = _clamp(_wrap_deg(los_yaw - body_yaw + composition.frame_yaw_bias_deg), -config.camera_yaw_limit_deg, config.camera_yaw_limit_deg)
-    camera_pitch = _clamp(los_pitch + composition.frame_pitch_bias_deg, config.camera_pitch_min_deg, config.camera_pitch_max_deg)
-
-    return {
-        "velocity": (float(velocity_cmd[0]), float(velocity_cmd[1]), float(velocity_cmd[2])),
-        "desired_position": (float(desired_position[0]), float(desired_position[1]), float(desired_position[2])),
-        "distance_m": los_distance,
-        "body_yaw_deg": body_yaw,
-        "camera_yaw_deg": camera_yaw,
-        "camera_pitch_deg": camera_pitch,
-    }
-
-def _detect_yolo_root(dataset_root: Path) -> Path:
-    if dataset_root.name.lower() == "dataset":
-        return dataset_root.parent
-    return dataset_root
-
-
-def _ensure_dataset_layout(dataset_root: Path) -> Dict[str, Path]:
-    yolo_root = _detect_yolo_root(dataset_root)
-    directories = {
-        "dataset_root": dataset_root,
-        "yolo_root": yolo_root,
-        "images_train": dataset_root / "images" / "train",
-        "images_val": dataset_root / "images" / "val",
-        "labels_train": dataset_root / "labels" / "train",
-        "labels_val": dataset_root / "labels" / "val",
-        "metadata": dataset_root / "metadata",
-        "sessions": dataset_root / "metadata" / "sessions",
-        "results": yolo_root / "results",
-        "runs_detect": yolo_root / "runs" / "detect",
-    }
-    for path in directories.values():
-        path.mkdir(parents=True, exist_ok=True)
-    return directories
-
-
-def _write_data_yaml(dataset_root: Path) -> Path:
-    yaml_path = dataset_root / "data.yaml"
-    yaml_text = (
-        f"path: {dataset_root.as_posix()}\n"
+def ensure_dataset_layout(root):
+    for split in ("train", "val"):
+        (root / "images" / split).mkdir(parents=True, exist_ok=True)
+        (root / "labels" / split).mkdir(parents=True, exist_ok=True)
+    (root / "data.yaml").write_text(
+        "path: " + root.as_posix() + "\n"
         "train: images/train\n"
         "val: images/val\n\n"
         "nc: 1\n"
         "names:\n"
-        "  0: drone\n"
+        "  0: drone\n",
+        encoding="utf-8",
     )
-    yaml_path.write_text(yaml_text, encoding="utf-8")
-    return yaml_path
 
 
-def _count_split_images(dataset_root: Path) -> Dict[str, int]:
-    counts = {"train": 0, "val": 0}
+def next_index(root):
+    idx = -1
     for split in ("train", "val"):
-        images_dir = dataset_root / "images" / split
-        if not images_dir.exists():
-            continue
-        counts[split] = sum(1 for path in images_dir.iterdir() if path.is_file() and path.suffix.lower() in IMAGE_EXTS)
+        for path in (root / "images" / split).glob("*.*"):
+            if path.suffix.lower() in IMAGE_EXTS and path.stem.isdigit():
+                idx = max(idx, int(path.stem))
+    return idx + 1
+
+
+def count_images(root):
+    counts = {"train": 0, "val": 0}
+    for split in counts:
+        counts[split] = sum(1 for p in (root / "images" / split).glob("*.*") if p.suffix.lower() in IMAGE_EXTS)
     return counts
 
 
-def _next_sample_index(dataset_root: Path) -> int:
-    max_index = 0
-    for split in ("train", "val"):
-        images_dir = dataset_root / "images" / split
-        if not images_dir.exists():
-            continue
-        for path in images_dir.iterdir():
-            if not path.is_file() or path.suffix.lower() not in IMAGE_EXTS:
-                continue
-            match = re.search(r"(\d+)$", path.stem)
-            if match:
-                max_index = max(max_index, int(match.group(1)))
-    return max_index + 1
-
-
-def _choose_split(split_counts: Dict[str, int], val_ratio: float) -> str:
-    ratio = _clamp(float(val_ratio), 0.0, 0.95)
+def choose_split(counts, val_ratio):
+    ratio = clamp(float(val_ratio), 0.0, 0.95)
     if ratio <= 0.0:
         split = "train"
     else:
-        total_after_save = split_counts["train"] + split_counts["val"] + 1
+        total_after_save = counts["train"] + counts["val"] + 1
         desired_val = int(math.floor(total_after_save * ratio + 0.5))
         if total_after_save > 1:
             desired_val = min(desired_val, total_after_save - 1)
-        split = "val" if split_counts["val"] < desired_val else "train"
-    split_counts[split] += 1
+        split = "val" if counts["val"] < desired_val else "train"
+    counts[split] += 1
     return split
 
 
-def _tuple3_from_payload(payload, key: str, default=(0.0, 0.0, 0.0)):
-    if not isinstance(payload, dict):
-        return default
-    value = payload.get(key, default)
-    if isinstance(value, (list, tuple)) and len(value) >= 3:
-        return (float(value[0]), float(value[1]), float(value[2]))
-    return default
-
-
-def _dot3(a, b) -> float:
+def dot3(a, b):
     return float(a[0]) * float(b[0]) + float(a[1]) * float(b[1]) + float(a[2]) * float(b[2])
 
 
-def _rotator_axes(pitch_deg: float, yaw_deg: float, roll_deg: float = 0.0):
+def rotator_axes(pitch_deg, yaw_deg, roll_deg=0.0):
     pitch = math.radians(float(pitch_deg))
     yaw = math.radians(float(yaw_deg))
     roll = math.radians(float(roll_deg))
-    cp = math.cos(pitch)
-    sp = math.sin(pitch)
-    cy = math.cos(yaw)
-    sy = math.sin(yaw)
-    cr = math.cos(roll)
-    sr = math.sin(roll)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    cr, sr = math.cos(roll), math.sin(roll)
     forward = (cp * cy, cp * sy, sp)
     right = (sr * sp * cy - cr * sy, sr * sp * sy + cr * cy, -sr * cp)
     up = (-cr * sp * cy - sr * sy, -cr * sp * sy + sr * cy, cr * cp)
     return forward, right, up
 
 
-def _project_world_point(camera_position_cm, camera_rotation_deg, fov_deg: float, image_w: int, image_h: int, world_position_m):
-    world_cm = (float(world_position_m[0]) * 100.0, float(world_position_m[1]) * 100.0, float(world_position_m[2]) * 100.0)
+def project_world_point(camera_pos_cm, camera_rot_deg, fov_deg, image_w, image_h, world_pos_m):
+    world_cm = (float(world_pos_m[0]) * 100.0, float(world_pos_m[1]) * 100.0, float(world_pos_m[2]) * 100.0)
     delta = (
-        world_cm[0] - float(camera_position_cm[0]),
-        world_cm[1] - float(camera_position_cm[1]),
-        world_cm[2] - float(camera_position_cm[2]),
+        world_cm[0] - float(camera_pos_cm[0]),
+        world_cm[1] - float(camera_pos_cm[1]),
+        world_cm[2] - float(camera_pos_cm[2]),
     )
-    forward, right, up = _rotator_axes(camera_rotation_deg[0], camera_rotation_deg[1], camera_rotation_deg[2])
-    x_cam = _dot3(delta, right)
-    y_cam = _dot3(delta, up)
-    z_cam = _dot3(delta, forward)
+    forward, right, up = rotator_axes(camera_rot_deg[0], camera_rot_deg[1], camera_rot_deg[2])
+    x_cam = dot3(delta, right)
+    y_cam = dot3(delta, up)
+    z_cam = dot3(delta, forward)
     if z_cam <= 1e-3:
         return None
-    half_fov = math.radians(_clamp(float(fov_deg), 1.0, 179.0) * 0.5)
-    focal = float(image_w) / max(1e-6, 2.0 * math.tan(half_fov))
-    px = (float(image_w) * 0.5) + focal * (x_cam / z_cam)
-    py = (float(image_h) * 0.5) - focal * (y_cam / z_cam)
-    return px, py, z_cam
+    focal = float(image_w) / max(1e-6, 2.0 * math.tan(math.radians(clamp(float(fov_deg), 1.0, 179.0) * 0.5)))
+    return (float(image_w) * 0.5 + focal * x_cam / z_cam, float(image_h) * 0.5 - focal * y_cam / z_cam)
 
 
-def _auto_label_from_projection(scene_response, target_snapshot: DroneSnapshot, image_w: int, image_h: int) -> AutoLabel:
-    camera_position_cm = _tuple3_from_payload(scene_response, "camera_pos")
-    camera_rotation_deg = _tuple3_from_payload(scene_response, "camera_rot")
-    fov_deg = float(scene_response.get("fov", 90.0) or 90.0) if isinstance(scene_response, dict) else 90.0
+def auto_label(scene_response, target_state, image_w, image_h):
+    camera_pos = scene_response.get("camera_pos", [0.0, 0.0, 0.0])
+    camera_rot = scene_response.get("camera_rot", [0.0, 0.0, 0.0])
+    fov = float(scene_response.get("fov", 90.0) or 90.0)
+    center = project_world_point(camera_pos, camera_rot, fov, image_w, image_h, target_state.position)
+    if center is None:
+        return AutoLabel(valid=False, image_w=image_w, image_h=image_h)
 
-    center_projection = _project_world_point(camera_position_cm, camera_rotation_deg, fov_deg, image_w, image_h, target_snapshot.position)
-    if center_projection is None:
-        return AutoLabel(valid=False, image_w=int(image_w), image_h=int(image_h))
-
-    forward, right, up = _rotator_axes(target_snapshot.pitch, target_snapshot.yaw, target_snapshot.roll)
-    center = target_snapshot.position
-    half_extents_m = (0.55, 0.55, 0.22)
-    projected_points = [(center_projection[0], center_projection[1])]
+    forward, right, up = rotator_axes(target_state.pitch, target_state.yaw, target_state.roll)
+    hx, hy, hz = 0.55, 0.55, 0.22
+    pts = [center]
     for sx in (-1.0, 1.0):
         for sy in (-1.0, 1.0):
             for sz in (-1.0, 1.0):
-                point = (
-                    float(center[0]) + sx * half_extents_m[0] * forward[0] + sy * half_extents_m[1] * right[0] + sz * half_extents_m[2] * up[0],
-                    float(center[1]) + sx * half_extents_m[0] * forward[1] + sy * half_extents_m[1] * right[1] + sz * half_extents_m[2] * up[1],
-                    float(center[2]) + sx * half_extents_m[0] * forward[2] + sy * half_extents_m[1] * right[2] + sz * half_extents_m[2] * up[2],
+                p = (
+                    float(target_state.position[0]) + sx * hx * forward[0] + sy * hy * right[0] + sz * hz * up[0],
+                    float(target_state.position[1]) + sx * hx * forward[1] + sy * hy * right[1] + sz * hz * up[1],
+                    float(target_state.position[2]) + sx * hx * forward[2] + sy * hy * right[2] + sz * hz * up[2],
                 )
-                projection = _project_world_point(camera_position_cm, camera_rotation_deg, fov_deg, image_w, image_h, point)
-                if projection is not None:
-                    projected_points.append((projection[0], projection[1]))
+                uv = project_world_point(camera_pos, camera_rot, fov, image_w, image_h, p)
+                if uv is not None:
+                    pts.append(uv)
 
-    xs = [point[0] for point in projected_points]
-    ys = [point[1] for point in projected_points]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
     if max(xs) < 0.0 or max(ys) < 0.0 or min(xs) >= float(image_w) or min(ys) >= float(image_h):
-        return AutoLabel(valid=False, image_w=int(image_w), image_h=int(image_h))
+        return AutoLabel(valid=False, image_w=image_w, image_h=image_h)
 
     x1 = max(0, int(math.floor(min(xs) - 4.0)))
     y1 = max(0, int(math.floor(min(ys) - 4.0)))
     x2 = min(int(image_w) - 1, int(math.ceil(max(xs) + 4.0)))
     y2 = min(int(image_h) - 1, int(math.ceil(max(ys) + 4.0)))
-    bbox_w = max(1, x2 - x1 + 1)
-    bbox_h = max(1, y2 - y1 + 1)
-    bbox_area = bbox_w * bbox_h
-    bbox_yolo = [
-        (x1 + x2 + 1) * 0.5 / max(1, int(image_w)),
-        (y1 + y2 + 1) * 0.5 / max(1, int(image_h)),
-        bbox_w / max(1, int(image_w)),
-        bbox_h / max(1, int(image_h)),
-    ]
+    bw = max(1, x2 - x1 + 1)
+    bh = max(1, y2 - y1 + 1)
+    area = bw * bh
     return AutoLabel(
         valid=True,
         class_id=0,
         bbox_xyxy=[x1, y1, x2, y2],
-        bbox_yolo=bbox_yolo,
-        pixel_count=int(bbox_area),
-        area_ratio=float(bbox_area) / max(1.0, float(image_w * image_h)),
-        image_w=int(image_w),
-        image_h=int(image_h),
+        bbox_yolo=[(x1 + x2 + 1) * 0.5 / image_w, (y1 + y2 + 1) * 0.5 / image_h, bw / image_w, bh / image_h],
+        pixel_count=area,
+        area_ratio=float(area) / max(1.0, float(image_w * image_h)),
+        image_w=image_w,
+        image_h=image_h,
     )
 
 
-def _auto_label(scene_response, target_snapshot: DroneSnapshot, image_w: int, image_h: int) -> AutoLabel:
-    # Scene is the only retained image type, so labels come from projection only.
-    return _auto_label_from_projection(scene_response, target_snapshot, image_w=image_w, image_h=image_h)
-
-
-def _label_text(label: AutoLabel) -> str:
+def label_text(label):
     if not label.valid or not label.bbox_yolo:
         return ""
     x, y, w, h = label.bbox_yolo
     return f"{int(label.class_id)} {x:.6f} {y:.6f} {w:.6f} {h:.6f}\n"
 
 
-def run_collection(config: dict[str, Any]) -> dict:
-    if np is None:
-        raise RuntimeError("numpy is required for Collect.py")
-    if cv2 is None:
-        raise RuntimeError("opencv-python is required for Collect.py")
+def bbox_iou_xyxy(a, b):
+    if not a or not b:
+        return 0.0
+    ax1, ay1, ax2, ay2 = [float(v) for v in a]
+    bx1, by1, bx2, by2 = [float(v) for v in b]
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw = max(0.0, ix2 - ix1 + 1.0)
+    ih = max(0.0, iy2 - iy1 + 1.0)
+    inter = iw * ih
+    if inter <= 0.0:
+        return 0.0
+    area_a = max(0.0, ax2 - ax1 + 1.0) * max(0.0, ay2 - ay1 + 1.0)
+    area_b = max(0.0, bx2 - bx1 + 1.0) * max(0.0, by2 - by1 + 1.0)
+    union = area_a + area_b - inter
+    return 0.0 if union <= 0.0 else inter / union
 
-    raw_config = config
-    config = _namespace(config)
 
-    project_root = Path(__file__).resolve().parents[2]
-    dataset_root = _resolve_path(project_root, config.output_root)
-    directories = _ensure_dataset_layout(dataset_root)
-    data_yaml_path = _write_data_yaml(dataset_root)
-    session_name = config.session_name.strip() if config.session_name else f"collect_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    session_config_path = directories["sessions"] / f"{session_name}.json"
-    session_config_path.write_text(
-        json.dumps(
-            {
-                "session_name": session_name,
-                "created_at": datetime.now().isoformat(timespec="seconds"),
-                "dataset_root": str(dataset_root),
-                "data_yaml": str(data_yaml_path),
-                "config": _jsonable(raw_config),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
+def normalize_xy(x, y):
+    mag = math.hypot(float(x), float(y))
+    if mag <= 1e-6:
+        return (0.0, 0.0), 0.0
+    return (float(x) / mag, float(y) / mag), mag
+
+
+def target_forward_xy(target_state, collector_state):
+    forward, speed = normalize_xy(float(target_state.velocity[0]), float(target_state.velocity[1]))
+    if speed >= 1.0:
+        return forward
+
+    yaw_rad = math.radians(float(target_state.yaw))
+    forward, speed = normalize_xy(math.cos(yaw_rad), math.sin(yaw_rad))
+    if speed >= 0.5:
+        return forward
+
+    fallback_x = float(target_state.position[0]) - float(collector_state.position[0])
+    fallback_y = float(target_state.position[1]) - float(collector_state.position[1])
+    forward, speed = normalize_xy(fallback_x, fallback_y)
+    if speed >= 1e-3:
+        return forward
+
+    return (1.0, 0.0)
+
+
+def pick_target_goal(rng, state):
+    x = rng.uniform(-70.0, 70.0)
+    y = rng.uniform(-70.0, 70.0)
+    z = rng.uniform(8.0, 16.0)
+    speed = rng.uniform(4.0, 7.5)
+    yaw = math.degrees(math.atan2(y - float(state.position[1]), x - float(state.position[0])))
+    return (x, y, z, speed, yaw)
+
+
+def sample_view_distance(rng, recovery=False):
+    roll = rng.random()
+    if recovery:
+        if roll < 0.75:
+            return rng.uniform(12.0, 18.0)
+        return rng.uniform(18.0, 22.0)
+    if roll < 0.18:
+        return rng.uniform(10.0, 14.0)
+    if roll < 0.68:
+        return rng.uniform(14.0, 22.0)
+    return rng.uniform(22.0, 30.0)
+
+
+def next_orbit_deg(rng, prev_view=None, orbit_direction=1.0):
+    if prev_view is None:
+        return rng.uniform(-180.0, 180.0)
+    base = float(prev_view["orbit_deg"])
+    step = rng.uniform(35.0, 80.0)
+    if rng.random() < 0.25:
+        step += rng.uniform(20.0, 55.0)
+    return wrap_deg(base + float(orbit_direction) * step + rng.uniform(-18.0, 18.0))
+
+
+def pick_view(rng, prev_view=None, orbit_direction=1.0):
+    return {
+        "distance": sample_view_distance(rng, recovery=False),
+        "orbit_deg": next_orbit_deg(rng, prev_view=prev_view, orbit_direction=orbit_direction),
+        "height_offset": rng.uniform(-3.0, 5.5),
+        "body_yaw_bias_deg": rng.uniform(-8.0, 8.0),
+        "camera_yaw_bias_deg": rng.uniform(-3.5, 3.5),
+        "camera_pitch_bias_deg": rng.uniform(-4.0, 3.0),
+    }
+
+
+def pick_recovery_view(rng, anchor_orbit_deg=0.0):
+    return {
+        "distance": sample_view_distance(rng, recovery=True),
+        "orbit_deg": wrap_deg(float(anchor_orbit_deg) + rng.uniform(-20.0, 20.0)),
+        "height_offset": rng.uniform(-1.5, 3.0),
+        "body_yaw_bias_deg": rng.uniform(-2.0, 2.0),
+        "camera_yaw_bias_deg": 0.0,
+        "camera_pitch_bias_deg": 0.0,
+    }
+
+
+def build_follow_command(
+    view,
+    target_state,
+    collector_state,
+    collector_z_min,
+    collector_z_max,
+    collector_speed_max,
+    min_target_distance,
+    camera_yaw_limit_deg,
+    camera_pitch_min_deg,
+    camera_pitch_max_deg,
+):
+    target_x = float(target_state.position[0])
+    target_y = float(target_state.position[1])
+    target_z = float(target_state.position[2])
+    collector_x = float(collector_state.position[0])
+    collector_y = float(collector_state.position[1])
+    collector_z = float(collector_state.position[2])
+    target_vx = float(target_state.velocity[0])
+    target_vy = float(target_state.velocity[1])
+    target_vz = float(target_state.velocity[2])
+
+    forward = target_forward_xy(target_state, collector_state)
+    right = (-forward[1], forward[0])
+    orbit = math.radians(float(view["orbit_deg"]))
+    distance = float(view["distance"])
+
+    desired_x = target_x - math.cos(orbit) * distance * forward[0] + math.sin(orbit) * distance * right[0]
+    desired_y = target_y - math.cos(orbit) * distance * forward[1] + math.sin(orbit) * distance * right[1]
+    desired_z = clamp(target_z + float(view["height_offset"]), collector_z_min, collector_z_max)
+
+    err_x = desired_x - collector_x
+    err_y = desired_y - collector_y
+    err_z = desired_z - collector_z
+    vel_x = 0.90 * err_x + 0.50 * target_vx
+    vel_y = 0.90 * err_y + 0.50 * target_vy
+    vel_z = 0.75 * err_z + 0.25 * target_vz
+
+    los_x = target_x - collector_x
+    los_y = target_y - collector_y
+    los_z = target_z - collector_z
+    los_distance = math.sqrt(los_x * los_x + los_y * los_y + los_z * los_z)
+    if los_distance < float(min_target_distance):
+        away_x = collector_x - target_x
+        away_y = collector_y - target_y
+        away_z = collector_z - target_z
+        away_mag = math.sqrt(away_x * away_x + away_y * away_y + away_z * away_z)
+        if away_mag > 1e-6:
+            push = (float(min_target_distance) - los_distance + 0.5) * 0.85
+            vel_x += away_x / away_mag * push
+            vel_y += away_y / away_mag * push
+            vel_z += away_z / away_mag * push * 0.6
+
+    speed = math.sqrt(vel_x * vel_x + vel_y * vel_y + vel_z * vel_z)
+    if speed > float(collector_speed_max):
+        scale = float(collector_speed_max) / max(1e-6, speed)
+        vel_x *= scale
+        vel_y *= scale
+        vel_z *= scale
+
+    horiz = math.hypot(los_x, los_y)
+    los_yaw = math.degrees(math.atan2(los_y, los_x))
+    los_pitch = math.degrees(math.atan2(los_z, max(1e-6, horiz)))
+    body_yaw = wrap_deg(los_yaw + float(view["body_yaw_bias_deg"]))
+    camera_yaw = clamp(
+        wrap_deg(los_yaw - body_yaw + float(view["camera_yaw_bias_deg"])),
+        -float(camera_yaw_limit_deg),
+        float(camera_yaw_limit_deg),
+    )
+    camera_pitch = clamp(
+        los_pitch + float(view["camera_pitch_bias_deg"]),
+        float(camera_pitch_min_deg),
+        float(camera_pitch_max_deg),
     )
 
-    train_manifest = (directories["metadata"] / "train.jsonl").open("a", encoding="utf-8")
-    val_manifest = (directories["metadata"] / "val.jsonl").open("a", encoding="utf-8")
+    return {
+        "velocity": (vel_x, vel_y, vel_z),
+        "desired_position": (desired_x, desired_y, desired_z),
+        "distance_m": los_distance,
+        "body_yaw_deg": body_yaw,
+        "camera_yaw_deg": camera_yaw,
+        "camera_pitch_deg": camera_pitch,
+    }
 
-    client = None
-    collector = None
-    target = None
-    created_collector = False
-    created_target = False
+
+def run():
+    host, port, timeout = "127.0.0.1", 9000, 10.0
+    show = cv2 is not None
+    keep_actors = False
+    reset_existing = False
+    seed = 1234
+
+    collector_id = "collect_drone_0"
+    target_id = "collect_drone_1"
+    collector_pose = Pose(x=0.0, y=0.0, z=1.0, yaw=0.0)
+    target_pose = Pose(x=-18.0, y=-12.0, z=1.0, yaw=180.0)
+    collector_altitude = 10.0
+    target_altitude = 10.0
+    collector_fov = 120.0
+
+    duration_s = 300.0
+    max_samples = 0
+    control_hz = 20.0
+    sample_hz = 5.0
+    image_quality = 95
+    val_ratio = 0.1
+    view_change_min_s = 2.4
+    view_change_max_s = 4.0
+    goal_reach_radius = 4.0
+    goal_timeout_s = 12.0
+    collector_z_min = 7.0
+    collector_z_max = 22.0
+    collector_speed_max = 20.0
+    min_target_distance = 6.0
+    camera_yaw_limit_deg = 35.0
+    camera_pitch_min_deg = -30.0
+    camera_pitch_max_deg = 22.0
+    min_area_ratio = 0.00018
+    max_area_ratio = 0.35
+    edge_margin_px = 10
+    duplicate_iou = 0.97
+
+    project_root = Path(__file__).resolve().parents[2]
+    dataset_root = project_root / "PythonClient" / "YOLO" / "dataset"
+    results_root = project_root / "PythonClient" / "YOLO" / "results"
+    results_root.mkdir(parents=True, exist_ok=True)
+    if reset_existing:
+        reset_collection_output(dataset_root, results_root)
+    ensure_dataset_layout(dataset_root)
+
+    client = TCPClient(host=host, port=port, timeout=timeout, auto_connect=False)
+    collector = target = None
+    created_collector = created_target = False
+
+    split_counts = count_images(dataset_root)
+    sample_index = next_index(dataset_root)
     saved_frames = 0
     labeled_frames = 0
-    empty_frames = 0
-    exit_reason = "finished"
+    sample_attempts = 0
+    skipped = {"invalid": 0, "tiny": 0, "huge": 0, "edge": 0, "duplicate": 0}
+    last_saved_box = None
+    last_follow = None
+    invalid_streak = 0
+    edge_streak = 0
 
     try:
-        client = TCPClient(
-            host=config.connection.host,
-            port=config.connection.port,
-            timeout=config.connection.timeout,
-            auto_connect=False,
-        )
         if not client.connect():
-            raise RuntimeError("failed to connect to simulator")
+            return {"saved_frames": 0, "labeled_frames": 0, "sample_attempts": 0, "skipped": skipped}
 
-        if config.clean_existing:
-            _ensure_removed(client, config.target.actor_id)
-            _ensure_removed(client, config.interceptor.actor_id)
-            time.sleep(0.2)
+        collector = AgentDrone(client, actor_id=collector_id, classname=DEFAULT_DRONE_CLASS, label="Collector", mission_role="collector")
+        target = AgentDrone(client, actor_id=target_id, classname=DEFAULT_DRONE_CLASS, label="Target", mission_role="target")
 
-        collector = AgentDrone(
-            client,
-            actor_id=config.interceptor.actor_id,
-            classname=config.interceptor.classname or DEFAULT_DRONE_CLASS,
-            label=config.interceptor.label,
-            mission_role=config.interceptor.role,
-        )
-        target = AgentDrone(
-            client,
-            actor_id=config.target.actor_id,
-            classname=config.target.classname or DEFAULT_DRONE_CLASS,
-            label=config.target.label,
-            mission_role=config.target.role,
-        )
-        if not _spawn_drone(collector, config.interceptor):
-            raise RuntimeError("collector spawn failed")
+        for actor_id in (collector_id, target_id):
+            client.send_message({"remove_actor": {"actor_id": actor_id}})
+        time.sleep(0.2)
+
+        if not ok(collector.create(pose=collector_pose, classname=DEFAULT_DRONE_CLASS, label="Collector")):
+            return {"saved_frames": 0, "labeled_frames": 0, "sample_attempts": 0, "skipped": skipped}
         created_collector = True
-        if not _spawn_drone(target, config.target):
-            raise RuntimeError("target spawn failed")
+        if not ok(target.create(pose=target_pose, classname=DEFAULT_DRONE_CLASS, label="Target")):
+            return {"saved_frames": 0, "labeled_frames": 0, "sample_attempts": 0, "skipped": skipped}
         created_target = True
-        time.sleep(0.4)
 
+        collector.enable_api_control(True)
+        target.enable_api_control(True)
+        collector.takeoff(collector_altitude)
+        target.takeoff(target_altitude)
+        wait_altitude(collector, collector_altitude)
+        wait_altitude(target, target_altitude)
+        collector.set_camera_fov(collector_fov)
+        collector.set_camera_angles(0.0, 0.0)
 
-        for drone, drone_config in ((collector, config.interceptor), (target, config.target)):
-            drone.enable_api_control(True)
-            drone.takeoff(altitude=drone_config.altitude)
-            if not _wait_for_altitude(drone, drone_config.altitude):
-                raise RuntimeError(f"takeoff timeout for {drone.actor_id}")
-        collector.set_camera_angles(config.interceptor.camera_pitch, config.interceptor.camera_yaw)
+        rng = random.Random(seed)
+        orbit_direction = -1.0 if rng.random() < 0.5 else 1.0
+        start = time.time()
+        next_control = start
+        next_sample = start + 1.0 / sample_hz
+        target_goal = pick_target_goal(rng, snapshot(target))
+        target_goal_deadline = start + goal_timeout_s
+        view = pick_recovery_view(rng, anchor_orbit_deg=rng.uniform(-180.0, 180.0))
+        view_deadline = start + 1.5
 
-        rng = random.Random(config.seed)
-        distance_bins = _distance_bins(config.distance_min, config.distance_max, count=5)
-        pending_bins = []
-        waypoint = None
-        composition = None
-        last_command = None
-        last_target_snapshot = None
-        last_collector_snapshot = None
-        sample_index = _next_sample_index(dataset_root)
-        split_counts = _count_split_images(dataset_root)
-        transient_errors = 0
-        start_s = time.monotonic()
-        next_control_s = start_s
-        next_sample_s = start_s
-        next_log_s = start_s
-        control_dt = max(0.02, 1.0 / max(1e-6, float(config.control_hz)))
-        sample_dt = max(0.05, 1.0 / max(1e-6, float(config.sample_hz)))
-        log_dt = max(0.2, float(config.telemetry_interval_s))
-
-        while True:
-            now_s = time.monotonic()
-            elapsed_s = now_s - start_s
-            if elapsed_s >= max(1.0, float(config.duration_s)):
-                break
-            if config.max_samples > 0 and saved_frames >= int(config.max_samples):
-                exit_reason = "finished:max_samples"
+        while time.time() - start < duration_s:
+            now = time.time()
+            if max_samples > 0 and saved_frames >= max_samples:
                 break
 
-            if now_s >= next_control_s:
-                last_target_snapshot = _snapshot(target)
-                last_collector_snapshot = _snapshot(collector)
-                if waypoint is None or _distance(last_target_snapshot.position, waypoint.position) <= max(0.5, float(config.waypoint_reach_radius)) or elapsed_s >= waypoint.expires_at:
-                    waypoint = _sample_waypoint(config, rng, last_target_snapshot.position, elapsed_s)
-                if composition is None or elapsed_s >= composition.expires_at:
-                    composition = _sample_composition(config, rng, distance_bins, pending_bins, elapsed_s)
-                last_command = _build_follow_command(config, composition, last_target_snapshot, last_collector_snapshot)
+            if now >= next_control:
+                target_state = snapshot(target)
+                collector_state = snapshot(collector)
 
-                target.move_to(*waypoint.position, speed=waypoint.speed, frame="ue", yaw_mode="angle", yaw=waypoint.yaw_deg, drivetrain="forward_only")
-                collector.move_by_velocity(*last_command["velocity"], frame="ue", yaw_mode="angle", yaw=last_command["body_yaw_deg"], drivetrain="max_degree_of_freedom")
-                collector.set_camera_angles(last_command["camera_pitch_deg"], last_command["camera_yaw_deg"])
-                next_control_s = now_s + control_dt
+                dx = target_goal[0] - float(target_state.position[0])
+                dy = target_goal[1] - float(target_state.position[1])
+                dz = target_goal[2] - float(target_state.position[2])
+                if math.sqrt(dx * dx + dy * dy + dz * dz) <= goal_reach_radius or now >= target_goal_deadline:
+                    target_goal = pick_target_goal(rng, target_state)
+                    target_goal_deadline = now + goal_timeout_s
 
-            if now_s >= next_sample_s and last_command is not None and last_target_snapshot is not None and last_collector_snapshot is not None:
-                try:
-                    scene_response = collector.get_image_response(image_type="scene", quality=config.image_quality)
-                    if not _ok(scene_response):
-                        raise RuntimeError("image packet missing")
-
-                    scene_packet = ImagePacket.from_response(scene_response, image_type="scene")
-
-                    preview_frame = None
-                    scene_bytes = base64.b64decode(scene_packet.data) if scene_packet.data else b""
-                    if config.show or not scene_bytes:
-                        preview_frame = scene_packet.decode_bgr()
-                        if preview_frame is None and not scene_bytes:
-                            raise RuntimeError("scene decode failed")
-
-                    image_w = int(scene_packet.width or (preview_frame.shape[1] if preview_frame is not None else 0))
-                    image_h = int(scene_packet.height or (preview_frame.shape[0] if preview_frame is not None else 0))
-                    auto_label = _auto_label(scene_response, last_target_snapshot, image_w=image_w, image_h=image_h)
-                    if not auto_label.valid and not config.save_empty_labels:
-                        next_sample_s = now_s + sample_dt
-                        continue
-
-                    split = _choose_split(split_counts, config.val_ratio)
-                    stem = f"{sample_index:06d}"
-                    sample_index += 1
-                    image_path = directories[f"images_{split}"] / f"{stem}.jpg"
-                    label_path = directories[f"labels_{split}"] / f"{stem}.txt"
-
-                    if scene_bytes:
-                        image_path.write_bytes(scene_bytes)
+                if now >= view_deadline:
+                    if invalid_streak >= 2 or edge_streak >= 2:
+                        view = pick_recovery_view(rng, anchor_orbit_deg=float(view["orbit_deg"]))
+                        view_deadline = now + rng.uniform(1.2, 2.0)
                     else:
-                        if preview_frame is None:
-                            raise RuntimeError("scene frame is unavailable")
-                        if not cv2.imwrite(str(image_path), preview_frame):
-                            raise RuntimeError(f"failed to save image: {image_path}")
+                        if rng.random() < 0.28:
+                            orbit_direction *= -1.0
+                        view = pick_view(rng, prev_view=view, orbit_direction=orbit_direction)
+                        view_deadline = now + rng.uniform(view_change_min_s, view_change_max_s)
 
+                target.move_to(
+                    x=target_goal[0],
+                    y=target_goal[1],
+                    z=target_goal[2],
+                    speed=target_goal[3],
+                    frame="ue",
+                    yaw_mode="angle",
+                    yaw=target_goal[4],
+                    move_pattern="forward_only",
+                )
 
-                    label_path.write_text(_label_text(auto_label), encoding="utf-8")
-                    if auto_label.valid:
+                last_follow = build_follow_command(
+                    view=view,
+                    target_state=target_state,
+                    collector_state=collector_state,
+                    collector_z_min=collector_z_min,
+                    collector_z_max=collector_z_max,
+                    collector_speed_max=collector_speed_max,
+                    min_target_distance=min_target_distance,
+                    camera_yaw_limit_deg=camera_yaw_limit_deg,
+                    camera_pitch_min_deg=camera_pitch_min_deg,
+                    camera_pitch_max_deg=camera_pitch_max_deg,
+                )
+                collector.move_by_velocity(
+                    *last_follow["velocity"],
+                    frame="ue",
+                    yaw_mode="angle",
+                    yaw=last_follow["body_yaw_deg"],
+                    move_pattern="max_degree_of_freedom",
+                )
+                collector.set_camera_angles(last_follow["camera_pitch_deg"], last_follow["camera_yaw_deg"])
+                next_control = now + 1.0 / control_hz
+
+            if now >= next_sample:
+                target_state = snapshot(target)
+                scene_response = collector.get_image_response(image_type="scene", quality=image_quality)
+                if ok(scene_response):
+                    sample_attempts += 1
+                    packet = ImagePacket.from_response(scene_response, image_type="scene")
+                    frame = packet.decode_bgr()
+                    image_w = int(packet.width or (frame.shape[1] if frame is not None else 0))
+                    image_h = int(packet.height or (frame.shape[0] if frame is not None else 0))
+                    label = auto_label(scene_response, target_state, image_w, image_h)
+
+                    reason = ""
+                    if not label.valid or not label.bbox_xyxy:
+                        reason = "invalid"
+                        invalid_streak += 1
+                    elif float(label.area_ratio) < min_area_ratio:
+                        reason = "tiny"
+                        invalid_streak = 0
+                    elif float(label.area_ratio) > max_area_ratio:
+                        reason = "huge"
+                        invalid_streak = 0
+                    else:
+                        invalid_streak = 0
+                        x1, y1, x2, y2 = [int(v) for v in label.bbox_xyxy]
+                        if x1 <= edge_margin_px or y1 <= edge_margin_px or x2 >= image_w - 1 - edge_margin_px or y2 >= image_h - 1 - edge_margin_px:
+                            reason = "edge"
+                            edge_streak += 1
+                        elif last_saved_box is not None and bbox_iou_xyxy(last_saved_box, label.bbox_xyxy) >= duplicate_iou:
+                            reason = "duplicate"
+                            edge_streak = 0
+                        else:
+                            edge_streak = 0
+
+                    if reason:
+                        skipped[reason] += 1
+                        if reason in ("invalid", "edge"):
+                            view = pick_recovery_view(rng, anchor_orbit_deg=float(view["orbit_deg"]))
+                            view_deadline = now + rng.uniform(1.0, 1.8)
+                    else:
+                        split = choose_split(split_counts, val_ratio)
+                        stem = f"{sample_index:06d}"
+                        sample_index += 1
+                        image_path = dataset_root / "images" / split / f"{stem}.jpg"
+                        label_path = dataset_root / "labels" / split / f"{stem}.txt"
+
+                        raw = base64.b64decode(packet.data) if packet.data else b""
+                        if raw:
+                            image_path.write_bytes(raw)
+                        elif frame is not None and cv2 is not None:
+                            cv2.imwrite(str(image_path), frame)
+                        else:
+                            next_sample = now + 1.0 / sample_hz
+                            time.sleep(0.005)
+                            continue
+
+                        label_path.write_text(label_text(label), encoding="utf-8")
+                        saved_frames += 1
                         labeled_frames += 1
-                    else:
-                        empty_frames += 1
-                    saved_frames += 1
+                        last_saved_box = list(label.bbox_xyxy)
 
-                    target_speed = math.sqrt(sum(float(v) * float(v) for v in last_target_snapshot.velocity))
-                    metadata = {
-                        "index": int(stem),
-                        "session_name": session_name,
-                        "split": split,
-                        "timestamp_s": round(elapsed_s, 6),
-                        "scene_image": image_path.relative_to(dataset_root).as_posix(),
-                        "label_file": label_path.relative_to(dataset_root).as_posix(),
-                        "label_valid": auto_label.valid,
-                        "bbox_xyxy": auto_label.bbox_xyxy,
-                        "bbox_yolo": auto_label.bbox_yolo,
-                        "pixel_count": auto_label.pixel_count,
-                        "mask_area_ratio": auto_label.area_ratio,
-                        "distance_m": last_command["distance_m"],
-                        "collector_position": list(last_collector_snapshot.position),
-                        "collector_velocity": list(last_collector_snapshot.velocity),
-                        "collector_body_yaw_deg": last_command["body_yaw_deg"],
-                        "collector_camera_yaw_deg": last_command["camera_yaw_deg"],
-                        "collector_camera_pitch_deg": last_command["camera_pitch_deg"],
-                        "target_position": list(last_target_snapshot.position),
-                        "target_velocity": list(last_target_snapshot.velocity),
-                        "target_speed_mps": target_speed,
-                        "waypoint": {"position": list(waypoint.position), "speed": waypoint.speed, "yaw_deg": waypoint.yaw_deg},
-                        "composition": {
-                            "desired_distance": composition.desired_distance,
-                            "azimuth_deg": composition.azimuth_deg,
-                            "relative_altitude": composition.relative_altitude,
-                            "body_yaw_bias_deg": composition.body_yaw_bias_deg,
-                            "frame_yaw_bias_deg": composition.frame_yaw_bias_deg,
-                            "frame_pitch_bias_deg": composition.frame_pitch_bias_deg,
-                        },
-                    }
-                    manifest = train_manifest if split == "train" else val_manifest
-                    manifest.write(json.dumps(metadata, ensure_ascii=False) + "\n")
-                    manifest.flush()
+                    if show and frame is not None and cv2 is not None:
+                        preview = frame.copy()
+                        if label.valid and label.bbox_xyxy:
+                            x1, y1, x2, y2 = [int(v) for v in label.bbox_xyxy]
+                            cv2.rectangle(preview, (x1, y1), (x2, y2), (40, 220, 60), 2, cv2.LINE_AA)
 
-                    if config.show and preview_frame is not None:
-                        canvas = preview_frame.copy()
-                        if auto_label.valid and auto_label.bbox_xyxy:
-                            x1, y1, x2, y2 = [int(v) for v in auto_label.bbox_xyxy]
-                            cv2.rectangle(canvas, (x1, y1), (x2, y2), (40, 220, 60), 2, cv2.LINE_AA)
-                        lines = [
-                            f"COLLECT | saved={saved_frames} labeled={labeled_frames} empty={empty_frames}",
-                            f"split={split} distance={last_command['distance_m']:.2f}m target_speed={target_speed:.2f}m/s pixels={auto_label.pixel_count}",
-                            f"body_yaw={last_command['body_yaw_deg']:+.1f} cam_yaw={last_command['camera_yaw_deg']:+.1f} cam_pitch={last_command['camera_pitch_deg']:+.1f}",
-                            "keys: q=quit",
-                        ]
-                        for idx, text in enumerate(lines):
-                            y = 24 + idx * 22
-                            cv2.putText(canvas, text, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.56, (0, 0, 0), 3, cv2.LINE_AA)
-                            cv2.putText(canvas, text, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.56, (235, 235, 235), 1, cv2.LINE_AA)
-                        cv2.imshow("graduation_collect", canvas)
+                        valid_ratio = float(saved_frames) / max(1.0, float(sample_attempts))
+                        line1 = f"saved={saved_frames} attempts={sample_attempts} valid={valid_ratio:.1%} train={split_counts['train']} val={split_counts['val']}"
+                        line2 = f"skip invalid={skipped['invalid']} tiny={skipped['tiny']} huge={skipped['huge']} edge={skipped['edge']} dup={skipped['duplicate']}"
+                        if last_follow is not None:
+                            line3 = (
+                                f"orbit={view['orbit_deg']:+.0f}deg cmd={view['distance']:.1f}m los={last_follow['distance_m']:.1f}m "
+                                f"cam(p={last_follow['camera_pitch_deg']:+.1f},y={last_follow['camera_yaw_deg']:+.1f}) "
+                                f"streak(inv={invalid_streak},edge={edge_streak})"
+                            )
+                        else:
+                            line3 = f"streak(inv={invalid_streak},edge={edge_streak})"
+                        cv2.putText(preview, line1, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.56, (235, 235, 235), 1, cv2.LINE_AA)
+                        cv2.putText(preview, line2, (10, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (235, 235, 235), 1, cv2.LINE_AA)
+                        cv2.putText(preview, line3, (10, 68), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (235, 235, 235), 1, cv2.LINE_AA)
+                        cv2.imshow("gt_collect", preview)
                         if (cv2.waitKey(1) & 0xFF) == ord("q"):
-                            exit_reason = "user quit"
                             break
 
-                    transient_errors = 0
-                except Exception as exc:
-                    transient_errors += 1
-                    print(f"[WARN] sample capture failed ({transient_errors}): {exc}")
-                    if transient_errors >= 5:
-                        raise RuntimeError(f"sample capture failed repeatedly: {exc}") from exc
-                next_sample_s = now_s + sample_dt
-
-            if now_s >= next_log_s and last_command is not None and last_target_snapshot is not None:
-                target_speed = math.sqrt(sum(float(v) * float(v) for v in last_target_snapshot.velocity))
-                print(
-                    f"[COLLECT] t={elapsed_s:6.1f}s saved={saved_frames} labeled={labeled_frames} "
-                    f"train={split_counts['train']} val={split_counts['val']} dist={last_command['distance_m']:6.2f}m target_speed={target_speed:5.2f}"
-                )
-                next_log_s = now_s + log_dt
-
+                next_sample = now + 1.0 / sample_hz
             time.sleep(0.005)
 
-        return _collection_result(
-            session_dir=str(dataset_root),
-            exit_reason=exit_reason,
-            saved_frames=saved_frames,
-            labeled_frames=labeled_frames,
-            empty_frames=empty_frames,
-            last_response={
-                "session_name": session_name,
-                "dataset_root": str(dataset_root),
-                "data_yaml": str(data_yaml_path),
-                "train_images": split_counts["train"],
-                "val_images": split_counts["val"],
-            },
-        )
+        summary = {
+            "dataset_root": str(dataset_root),
+            "saved_frames": saved_frames,
+            "labeled_frames": labeled_frames,
+            "sample_attempts": sample_attempts,
+            "valid_ratio": 0.0 if sample_attempts <= 0 else float(saved_frames) / float(sample_attempts),
+            "skipped": skipped,
+            "split_counts": split_counts,
+            "seed": seed,
+            "reset_existing": reset_existing,
+        }
+        (results_root / "collect_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        return summary
     finally:
-        train_manifest.close()
-        val_manifest.close()
         try:
-            cv2.destroyAllWindows()
+            if cv2 is not None:
+                cv2.destroyAllWindows()
         except Exception:
             pass
-        try:
-            if collector is not None and created_collector:
-                collector.hover()
-            if target is not None and created_target:
-                target.hover()
-        except Exception:
-            pass
-        should_cleanup = (not config.keep_actors) and (not str(exit_reason).startswith("error:"))
-        if should_cleanup:
+        for drone, created in ((collector, created_collector), (target, created_target)):
+            if drone is not None and created:
+                try:
+                    drone.hover()
+                except Exception:
+                    pass
+        if not keep_actors:
             for actor, created in ((target, created_target), (collector, created_collector)):
                 if actor is not None and created:
                     try:
                         actor.remove()
                     except Exception:
                         pass
-        if client is not None:
-            client.disconnect()
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Collect YOLO training data with scene images and projection auto-labeling")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=9000)
-    parser.add_argument("--timeout", type=float, default=10.0)
-
-    parser.add_argument("--drone-class", default=None)
-    parser.add_argument("--collector-class", default=None)
-    parser.add_argument("--target-class", default=None)
-    parser.add_argument("--collector-id", default="collect_drone_0")
-    parser.add_argument("--target-id", default="collect_drone_1")
-
-    parser.add_argument("--collector-spawn-x", type=float, default=0.0)
-    parser.add_argument("--collector-spawn-y", type=float, default=0.0)
-    parser.add_argument("--collector-spawn-z", type=float, default=1.0)
-    parser.add_argument("--collector-yaw", type=float, default=0.0)
-    parser.add_argument("--collector-altitude", type=float, default=12.0)
-    parser.add_argument("--collector-camera-pitch", type=float, default=0.0)
-    parser.add_argument("--collector-camera-yaw", type=float, default=0.0)
-
-    parser.add_argument("--target-spawn-x", type=float, default=35.0)
-    parser.add_argument("--target-spawn-y", type=float, default=12.0)
-    parser.add_argument("--target-spawn-z", type=float, default=1.0)
-    parser.add_argument("--target-yaw", type=float, default=180.0)
-    parser.add_argument("--target-altitude", type=float, default=12.0)
-
-    parser.add_argument("--output-root", default="PythonClient/YOLO/dataset")
-    parser.add_argument("--session-name", default="")
-    parser.add_argument("--duration", type=float, default=300.0)
-    parser.add_argument("--max-samples", type=int, default=0)
-    parser.add_argument("--control-hz", type=float, default=12.0)
-    parser.add_argument("--sample-hz", type=float, default=4.0)
-    parser.add_argument("--telemetry-interval", type=float, default=1.0)
-    parser.add_argument("--seed", type=int, default=1234)
-    parser.add_argument("--val-ratio", type=float, default=0.1)
-
-    parser.add_argument("--x-min", type=float, default=-150.0)
-    parser.add_argument("--x-max", type=float, default=150.0)
-    parser.add_argument("--y-min", type=float, default=-150.0)
-    parser.add_argument("--y-max", type=float, default=150.0)
-    parser.add_argument("--z-min", type=float, default=6.0)
-    parser.add_argument("--z-max", type=float, default=24.0)
-    parser.add_argument("--target-speed-min", type=float, default=6.0)
-    parser.add_argument("--target-speed-max", type=float, default=18.0)
-    parser.add_argument("--waypoint-reach-radius", type=float, default=4.0)
-    parser.add_argument("--waypoint-timeout", type=float, default=14.0)
-
-    parser.add_argument("--distance-min", type=float, default=4.0)
-    parser.add_argument("--distance-max", type=float, default=140.0)
-    parser.add_argument("--relative-altitude-min", type=float, default=-12.0)
-    parser.add_argument("--relative-altitude-max", type=float, default=20.0)
-    parser.add_argument("--interceptor-max-speed", type=float, default=20.0)
-    parser.add_argument("--composition-hold-min", type=float, default=2.0)
-    parser.add_argument("--composition-hold-max", type=float, default=6.0)
-    parser.add_argument("--body-yaw-bias-max", type=float, default=18.0)
-    parser.add_argument("--frame-yaw-bias-max", type=float, default=20.0)
-    parser.add_argument("--frame-pitch-bias-max", type=float, default=14.0)
-    parser.add_argument("--camera-yaw-limit", type=float, default=35.0)
-    parser.add_argument("--camera-pitch-min", type=float, default=-35.0)
-    parser.add_argument("--camera-pitch-max", type=float, default=25.0)
-
-    parser.add_argument("--image-quality", type=int, default=95)
-    parser.add_argument("--show", dest="show", action="store_true")
-    parser.add_argument("--no-show", dest="show", action="store_false")
-    parser.set_defaults(show=True)
-    parser.add_argument("--save-empty-labels", dest="save_empty_labels", action="store_true")
-    parser.add_argument("--no-save-empty-labels", dest="save_empty_labels", action="store_false")
-    parser.set_defaults(save_empty_labels=True)
-    parser.add_argument("--keep-actors", action="store_true")
-    parser.add_argument("--clean-existing", dest="clean_existing", action="store_true")
-    parser.add_argument("--no-clean-existing", dest="clean_existing", action="store_false")
-    parser.set_defaults(clean_existing=True)
-    return parser
-
-
-def build_config(args: argparse.Namespace) -> dict[str, Any]:
-    default_drone_class = args.drone_class or DEFAULT_DRONE_CLASS
-    return {
-        "connection": {
-            "host": args.host,
-            "port": args.port,
-            "timeout": args.timeout,
-        },
-        "interceptor": {
-            "actor_id": args.collector_id,
-            "label": "Collector",
-            "role": "collector",
-            "classname": args.collector_class or default_drone_class,
-            "spawn_pose": Pose(x=args.collector_spawn_x, y=args.collector_spawn_y, z=args.collector_spawn_z, yaw=args.collector_yaw),
-            "altitude": args.collector_altitude,
-            "camera_pitch": args.collector_camera_pitch,
-            "camera_yaw": args.collector_camera_yaw,
-        },
-        "target": {
-            "actor_id": args.target_id,
-            "label": "Target",
-            "role": "target",
-            "classname": args.target_class or default_drone_class,
-            "spawn_pose": Pose(x=args.target_spawn_x, y=args.target_spawn_y, z=args.target_spawn_z, yaw=args.target_yaw),
-            "altitude": args.target_altitude,
-        },
-        "output_root": args.output_root,
-        "session_name": args.session_name,
-        "duration_s": args.duration,
-        "max_samples": args.max_samples,
-        "control_hz": args.control_hz,
-        "sample_hz": args.sample_hz,
-        "telemetry_interval_s": args.telemetry_interval,
-        "seed": args.seed,
-        "val_ratio": args.val_ratio,
-        "clean_existing": args.clean_existing,
-        "keep_actors": args.keep_actors,
-        "show": args.show,
-        "image_quality": args.image_quality,
-        "save_empty_labels": args.save_empty_labels,
-        "random_bounds": {
-            "x_min": args.x_min,
-            "x_max": args.x_max,
-            "y_min": args.y_min,
-            "y_max": args.y_max,
-            "z_min": args.z_min,
-            "z_max": args.z_max,
-        },
-        "target_speed_min": args.target_speed_min,
-        "target_speed_max": args.target_speed_max,
-        "waypoint_reach_radius": args.waypoint_reach_radius,
-        "waypoint_timeout_s": args.waypoint_timeout,
-        "interceptor_max_speed": args.interceptor_max_speed,
-        "distance_min": args.distance_min,
-        "distance_max": args.distance_max,
-        "relative_altitude_min": args.relative_altitude_min,
-        "relative_altitude_max": args.relative_altitude_max,
-        "composition_hold_min_s": args.composition_hold_min,
-        "composition_hold_max_s": args.composition_hold_max,
-        "body_yaw_bias_max_deg": args.body_yaw_bias_max,
-        "frame_yaw_bias_max_deg": args.frame_yaw_bias_max,
-        "frame_pitch_bias_max_deg": args.frame_pitch_bias_max,
-        "camera_yaw_limit_deg": args.camera_yaw_limit,
-        "camera_pitch_min_deg": args.camera_pitch_min,
-        "camera_pitch_max_deg": args.camera_pitch_max,
-    }
-
-
-def main() -> int:
-    try:
-        config = build_config(build_parser().parse_args())
-        result = run_collection(config)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0 if not str(result.get("exit_reason", "")).startswith("error:") else 1
-    except Exception as exc:
-        print(json.dumps({"exit_reason": f"error:{exc}"}, ensure_ascii=False, indent=2))
-        return 1
+        client.disconnect()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    print(json.dumps(run(), ensure_ascii=False, indent=2))
+
+
+
+
+
 

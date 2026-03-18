@@ -1,21 +1,10 @@
 from .AgentBase import AgentBase
-from .AgentDrone import AgentDrone, DEFAULT_DRONE_CLASS
+from .AgentDrone import AgentDrone
 from .AgentGuidance import AgentGuidance
-from .DataTypes import (
-    AutoLabel,
-    DetectionCandidate,
-    DetectionResult,
-    DroneSnapshot,
-    GuidanceState,
-    ImagePacket,
-    Pose,
-    TrajectoryReference,
-)
+from .DataTypes import AutoLabel, DroneSnapshot, ImagePacket, Pose
 from .TCPClient import TCPClient
-from .Task import Task, run_task
-from .Trajectory import TrajectoryFactory
-from .UI import VisualUI
-from .Yolo import YoloDetector
+
+DEFAULT_DRONE_CLASS = "/Game/Blueprints/BP_Drone.BP_Drone_C"
 
 __all__ = [
     "AgentBase",
@@ -23,17 +12,8 @@ __all__ = [
     "AgentGuidance",
     "AutoLabel",
     "DEFAULT_DRONE_CLASS",
-    "DetectionCandidate",
-    "DetectionResult",
     "DroneSnapshot",
-    "GuidanceState",
     "ImagePacket",
     "Pose",
     "TCPClient",
-    "Task",
-    "TrajectoryFactory",
-    "TrajectoryReference",
-    "VisualUI",
-    "YoloDetector",
-    "run_task",
 ]

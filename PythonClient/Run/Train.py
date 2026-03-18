@@ -1,29 +1,16 @@
 ﻿from __future__ import annotations
 
-import argparse
 import json
 import os
-import shutil
 import sys
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
 
 
-def _resolve_path(root: Path, path_text: str) -> Path:
-    path = Path(path_text)
-    if not path.is_absolute():
-        path = root / path
-    return path.resolve()
-
-
-def _ensure_ultralytics_import_path(project_root: Path) -> None:
+def ensure_ultralytics_import_path(project_root):
     source_root = project_root / "PythonClient" / "YOLO" / "ultralytics"
-    if not source_root.exists():
-        raise RuntimeError(f"local ultralytics source not found: {source_root}")
     settings_root = project_root / "PythonClient" / ".ultralytics_config"
     settings_root.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("YOLO_CONFIG_DIR", str(settings_root))
@@ -34,187 +21,227 @@ def _ensure_ultralytics_import_path(project_root: Path) -> None:
         sys.path.insert(0, source_text)
 
 
-def _write_data_yaml(dataset_root: Path, use_train_as_val: bool = False) -> Path:
-    yaml_path = dataset_root / "data.yaml"
-    yaml_text = (
-        f"path: {dataset_root.as_posix()}\n"
-        "train: images/train\n"
-        f"val: {'images/train' if use_train_as_val else 'images/val'}\n\n"
-        "nc: 1\n"
-        "names:\n"
-        "  0: drone\n"
-    )
-    yaml_path.write_text(yaml_text, encoding="utf-8")
-    return yaml_path
-
-
-def _list_samples(dataset_root: Path, split: str) -> List[Tuple[Path, Path]]:
+def list_samples(dataset_root, split):
     images_dir = dataset_root / "images" / split
     labels_dir = dataset_root / "labels" / split
-    samples: List[Tuple[Path, Path]] = []
+    samples = []
     if not images_dir.exists():
         return samples
     for image_path in sorted(images_dir.iterdir()):
-        if not image_path.is_file() or image_path.suffix.lower() not in IMAGE_EXTS:
-            continue
-        label_path = labels_dir / f"{image_path.stem}.txt"
-        samples.append((image_path, label_path))
+        if image_path.is_file() and image_path.suffix.lower() in IMAGE_EXTS:
+            samples.append((image_path, labels_dir / f"{image_path.stem}.txt"))
     return samples
 
 
-def _move_sample(sample: Tuple[Path, Path], dst_images_dir: Path, dst_labels_dir: Path) -> Dict[str, str]:
+def ensure_label_file(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text("", encoding="utf-8")
+
+
+def move_sample(sample, dataset_root, dst_split):
     image_path, label_path = sample
-    dst_image = dst_images_dir / image_path.name
-    dst_label = dst_labels_dir / label_path.name
-    dst_images_dir.mkdir(parents=True, exist_ok=True)
-    dst_labels_dir.mkdir(parents=True, exist_ok=True)
+    dst_image_dir = dataset_root / "images" / dst_split
+    dst_label_dir = dataset_root / "labels" / dst_split
+    dst_image_dir.mkdir(parents=True, exist_ok=True)
+    dst_label_dir.mkdir(parents=True, exist_ok=True)
+    dst_image = dst_image_dir / image_path.name
+    dst_label = dst_label_dir / label_path.name
     image_path.replace(dst_image)
     if label_path.exists():
         label_path.replace(dst_label)
     else:
         dst_label.write_text("", encoding="utf-8")
-    return {
-        "image": str(dst_image),
-        "label": str(dst_label),
-    }
 
 
-def _rebalance_dataset(dataset_root: Path) -> Dict[str, object]:
-    moves: List[Dict[str, str]] = []
-    train_samples = _list_samples(dataset_root, "train")
-    val_samples = _list_samples(dataset_root, "val")
-
-    if not train_samples and len(val_samples) > 1:
-        moves.append(
-            _move_sample(
-                val_samples[0],
-                dataset_root / "images" / "train",
-                dataset_root / "labels" / "train",
-            )
-        )
-    train_samples = _list_samples(dataset_root, "train")
-    val_samples = _list_samples(dataset_root, "val")
-    if not val_samples and len(train_samples) > 1:
-        moves.append(
-            _move_sample(
-                train_samples[-1],
-                dataset_root / "images" / "val",
-                dataset_root / "labels" / "val",
-            )
-        )
-
-    return {
-        "train_images": len(_list_samples(dataset_root, "train")),
-        "val_images": len(_list_samples(dataset_root, "val")),
-        "moves": moves,
-    }
+def write_data_yaml(dataset_root, use_train_as_val=False):
+    yaml_path = dataset_root / "data.yaml"
+    yaml_path.write_text(
+        "path: " + dataset_root.as_posix() + "\n"
+        "train: images/train\n"
+        f"val: {'images/train' if use_train_as_val else 'images/val'}\n\n"
+        "nc: 1\n"
+        "names:\n"
+        "  0: drone\n",
+        encoding="utf-8",
+    )
+    return yaml_path
 
 
-def prepare_dataset(dataset_root: Path) -> Dict[str, object]:
+def prepare_dataset(dataset_root):
     for split in ("train", "val"):
         (dataset_root / "images" / split).mkdir(parents=True, exist_ok=True)
         (dataset_root / "labels" / split).mkdir(parents=True, exist_ok=True)
 
-    rebalance = _rebalance_dataset(dataset_root)
-    train_images = int(rebalance["train_images"])
-    val_images = int(rebalance["val_images"])
-    if train_images <= 0:
+    train_samples = list_samples(dataset_root, "train")
+    val_samples = list_samples(dataset_root, "val")
+    if not train_samples and val_samples:
+        move_sample(val_samples[0], dataset_root, "train")
+    train_samples = list_samples(dataset_root, "train")
+    val_samples = list_samples(dataset_root, "val")
+    if not val_samples and len(train_samples) > 1:
+        move_sample(train_samples[-1], dataset_root, "val")
+
+    for split in ("train", "val"):
+        for _, label_path in list_samples(dataset_root, split):
+            ensure_label_file(label_path)
+
+    train_count = len(list_samples(dataset_root, "train"))
+    val_count = len(list_samples(dataset_root, "val"))
+    if train_count <= 0:
         raise RuntimeError(f"dataset has no training images: {dataset_root}")
 
-    use_train_as_val = val_images <= 0
-    yaml_path = _write_data_yaml(dataset_root, use_train_as_val=use_train_as_val)
+    yaml_path = write_data_yaml(dataset_root, use_train_as_val=(val_count <= 0))
+    return yaml_path, train_count, val_count
+
+
+def scan_split(dataset_root, split):
+    stats = {
+        "images": 0,
+        "labeled_images": 0,
+        "empty_labels": 0,
+        "missing_labels": 0,
+        "invalid_labels": 0,
+        "boxes": 0,
+        "min_area_ratio": 0.0,
+        "max_area_ratio": 0.0,
+        "mean_area_ratio": 0.0,
+    }
+    area_ratios = []
+    for image_path, label_path in list_samples(dataset_root, split):
+        stats["images"] += 1
+        if not label_path.exists():
+            stats["missing_labels"] += 1
+            ensure_label_file(label_path)
+            stats["empty_labels"] += 1
+            continue
+        text = label_path.read_text(encoding="utf-8").strip()
+        if not text:
+            stats["empty_labels"] += 1
+            continue
+        valid_image = False
+        for raw_line in text.splitlines():
+            parts = raw_line.strip().split()
+            if len(parts) != 5:
+                stats["invalid_labels"] += 1
+                continue
+            try:
+                _, _, _, bw, bh = [float(item) for item in parts]
+            except ValueError:
+                stats["invalid_labels"] += 1
+                continue
+            if bw <= 0.0 or bh <= 0.0 or bw > 1.0 or bh > 1.0:
+                stats["invalid_labels"] += 1
+                continue
+            valid_image = True
+            stats["boxes"] += 1
+            area_ratios.append(bw * bh)
+        if valid_image:
+            stats["labeled_images"] += 1
+    if area_ratios:
+        stats["min_area_ratio"] = min(area_ratios)
+        stats["max_area_ratio"] = max(area_ratios)
+        stats["mean_area_ratio"] = sum(area_ratios) / len(area_ratios)
+    return stats
+
+
+def scan_dataset(dataset_root):
+    train_stats = scan_split(dataset_root, "train")
+    val_stats = scan_split(dataset_root, "val")
     return {
-        "dataset_root": str(dataset_root),
-        "data_yaml": str(yaml_path),
-        "train_images": train_images,
-        "val_images": val_images,
-        "val_source": "train" if use_train_as_val else "val",
-        "rebalance_moves": rebalance["moves"],
+        "train": train_stats,
+        "val": val_stats,
+        "total_boxes": int(train_stats["boxes"] + val_stats["boxes"]),
     }
 
 
-def run_training(args: argparse.Namespace, dataset_yaml: Path) -> Dict[str, object]:
-    project_root = Path(__file__).resolve().parents[2]
-    _ensure_ultralytics_import_path(project_root)
-    from ultralytics import YOLO
+def pick_model_path(weights_dir):
+    preferred = weights_dir / "yolo26n.pt"
+    if preferred.exists():
+        return preferred
+    candidates = sorted(weights_dir.glob("*.pt"))
+    if not candidates:
+        raise RuntimeError(f"no pretrained weights found in: {weights_dir}")
+    return candidates[0]
 
-    model_path = _resolve_path(project_root, args.model)
-    project_dir = _resolve_path(project_root, args.project)
-    results_root = _resolve_path(project_root, args.results_root)
+
+def run():
+    project_root = Path(__file__).resolve().parents[2]
+    dataset_root = project_root / "PythonClient" / "YOLO" / "dataset"
+    weights_dir = project_root / "PythonClient" / "YOLO" / "weights"
+    project_dir = project_root / "PythonClient" / "YOLO" / "runs" / "detect"
+    results_root = project_root / "PythonClient" / "YOLO" / "results"
+
+    epochs = 100
+    batch = 16
+    imgsz = 640
+    workers = 4
+    device = None
+    run_name = "collect_train"
+    patience = 20
+
+    yaml_path, train_count, val_count = prepare_dataset(dataset_root)
+    dataset_stats = scan_dataset(dataset_root)
+    if dataset_stats["train"]["boxes"] <= 0:
+        raise RuntimeError("dataset has no positive training labels")
+    if dataset_stats["train"]["invalid_labels"] > 0 or dataset_stats["val"]["invalid_labels"] > 0:
+        raise RuntimeError(f"dataset has invalid labels: {dataset_stats}")
+
+    batch = min(batch, max(2, train_count))
+    model_path = pick_model_path(weights_dir)
+
     project_dir.mkdir(parents=True, exist_ok=True)
     results_root.mkdir(parents=True, exist_ok=True)
+    ensure_ultralytics_import_path(project_root)
 
-    run_name = args.name.strip() if args.name else f"collect_train_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    from ultralytics import YOLO
+
     model = YOLO(str(model_path))
     result = model.train(
-        data=str(dataset_yaml),
-        epochs=args.epochs,
-        batch=args.batch,
-        imgsz=args.imgsz,
-        device=None if args.device in (None, "", "auto", "none") else args.device,
-        workers=args.workers,
+        data=str(yaml_path),
+        epochs=epochs,
+        batch=batch,
+        imgsz=imgsz,
+        device=device,
+        workers=workers,
         project=str(project_dir),
         name=run_name,
-        resume=args.resume,
         exist_ok=True,
         verbose=True,
+        patience=patience,
+        cos_lr=True,
+        close_mosaic=10,
+        degrees=0.0,
+        translate=0.06,
+        scale=0.35,
+        fliplr=0.5,
+        mosaic=0.20,
+        mixup=0.0,
+        copy_paste=0.0,
     )
 
-    save_dir_value = getattr(result, "save_dir", None)
-    save_dir = Path(str(save_dir_value)) if save_dir_value else None
-    copied_results_csv = ""
-    if save_dir is not None and save_dir.exists():
-        results_csv = save_dir / "results.csv"
-        if results_csv.exists():
-            results_copy = results_root / f"{run_name}_results.csv"
-            shutil.copy2(results_csv, results_copy)
-            copied_results_csv = str(results_copy)
-
+    save_dir = Path(str(getattr(result, "save_dir", project_dir / run_name)))
+    weights_out = save_dir / "weights"
+    best_weights = weights_out / "best.pt"
+    last_weights = weights_out / "last.pt"
     summary = {
-        "run_name": run_name,
+        "dataset_root": str(dataset_root),
+        "data_yaml": str(yaml_path),
+        "dataset_stats": dataset_stats,
+        "train_images": train_count,
+        "val_images": val_count,
         "model": str(model_path),
-        "dataset_yaml": str(dataset_yaml),
-        "save_dir": str(save_dir) if save_dir is not None else "",
-        "results_csv": copied_results_csv,
+        "epochs": epochs,
+        "batch": batch,
+        "imgsz": imgsz,
+        "save_dir": str(save_dir),
+        "best_weights": str(best_weights) if best_weights.exists() else "",
+        "last_weights": str(last_weights) if last_weights.exists() else "",
     }
     summary_path = results_root / f"{run_name}_summary.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    summary["summary_json"] = str(summary_path)
     return summary
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Train YOLO directly from PythonClient/YOLO/dataset")
-    parser.add_argument("--dataset-root", default="PythonClient/YOLO/dataset")
-    parser.add_argument("--model", default="PythonClient/YOLO/weights/yolo26n.pt")
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--batch", type=int, default=16)
-    parser.add_argument("--imgsz", type=int, default=640)
-    parser.add_argument("--device", default="auto")
-    parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--project", default="PythonClient/YOLO/runs/detect")
-    parser.add_argument("--results-root", default="PythonClient/YOLO/results")
-    parser.add_argument("--name", default="collect_train")
-    parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--no-train", dest="train", action="store_false")
-    parser.set_defaults(train=True)
-    return parser
-
-
-def main() -> int:
-    args = build_parser().parse_args()
-    project_root = Path(__file__).resolve().parents[2]
-    try:
-        dataset_root = _resolve_path(project_root, args.dataset_root)
-        summary = prepare_dataset(dataset_root)
-        if args.train:
-            summary["train"] = run_training(args, Path(summary["data_yaml"]))
-        print(json.dumps(summary, ensure_ascii=False, indent=2))
-        return 0
-    except Exception as exc:
-        print(json.dumps({"exit_reason": f"error:{exc}"}, ensure_ascii=False, indent=2))
-        return 1
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    print(json.dumps(run(), ensure_ascii=False, indent=2))

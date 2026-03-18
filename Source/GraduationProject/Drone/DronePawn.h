@@ -268,6 +268,9 @@ public:
     // 解释：调用 `SetCameraAngles` 执行当前步骤需要的功能逻辑。
     void SetCameraAngles(float TargetPitch, float TargetYaw);
 
+    UFUNCTION(BlueprintCallable, Category = "Drone|Camera")
+    void SetCameraFOV(float NewFOV);
+
     /**
      * @brief 设置该无人机的语义分割 Stencil ID
      * @param NewSegmentationId 0-255 的分割标识

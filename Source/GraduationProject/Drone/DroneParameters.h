@@ -121,7 +121,7 @@ struct GRADUATIONPROJECT_API FDroneParameters
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Drone|Parameters|Mass")
     // 解释：这一行声明成员或局部变量 `Mass`，用于保存mass。
-    double Mass = 1.0;
+    double Mass = 1.0230;
 
     /** @brief 单个电机组件质量（kg，F450 近似值 0.055） */
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
@@ -135,19 +135,19 @@ struct GRADUATIONPROJECT_API FDroneParameters
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Drone|Parameters|Inertia")
     // 解释：这一行声明成员或局部变量 `Jx`，用于保存jx。
-    double Jx = 0.0023;
+    double Jx = 0.0095;
 
     /** @brief 绕 Y 轴的转动惯量 Jy（kg·m²） */
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Drone|Parameters|Inertia")
     // 解释：这一行声明成员或局部变量 `Jy`，用于保存jy。
-    double Jy = 0.0023;
+    double Jy = 0.0095;
 
     /** @brief 绕 Z 轴的转动惯量 Jz（kg·m²） */
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Drone|Parameters|Inertia")
     // 解释：这一行声明成员或局部变量 `Jz`，用于保存jz。
-    double Jz = 0.004;
+    double Jz = 0.0186;
 
     // ──── 几何参数 ────
 
@@ -155,7 +155,7 @@ struct GRADUATIONPROJECT_API FDroneParameters
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Drone|Parameters|Geometry")
     // 解释：这一行声明成员或局部变量 `ArmLength`，用于保存armlength。
-    double ArmLength = 0.2275;
+    double ArmLength = 0.2223;
 
     /** @brief QuadX 布局中电机相对机体系 X 轴夹角（度） */
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
@@ -202,7 +202,7 @@ struct GRADUATIONPROJECT_API FDroneParameters
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Drone|Parameters|Propulsion")
     // 解释：这一行声明成员或局部变量 `C_T`，用于保存CT。
-    double C_T = 0.109919;
+    double C_T = 0.1667725;
 
     /**
      * @brief 扭矩系数 $C_P$
@@ -213,13 +213,13 @@ struct GRADUATIONPROJECT_API FDroneParameters
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Drone|Parameters|Propulsion")
     // 解释：这一行声明成员或局部变量 `C_P`，用于保存CP。
-    double C_P = 0.040164;
+    double C_P = 0.0901964;
 
     /** @brief 最大转速（RPM） */
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Drone|Parameters|Propulsion")
     // 解释：这一行声明成员或局部变量 `MaxRPM`，用于保存maxrpm。
-    double MaxRPM = 6396.667;
+    double MaxRPM = 12000.0;
 
     /** @brief 螺旋桨直径（m） */
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
@@ -239,7 +239,7 @@ struct GRADUATIONPROJECT_API FDroneParameters
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Drone|Parameters|Motor")
     // 解释：这一行声明成员或局部变量 `MotorFilterTC`，用于保存motorfiltertc。
-    double MotorFilterTC = 0.005;
+    double MotorFilterTC = 0.076;
 
     /** @brief 最小电机角速度（rad/s） */
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
@@ -259,7 +259,7 @@ struct GRADUATIONPROJECT_API FDroneParameters
     // 解释：使用 `UPROPERTY` 宏为下面的成员变量声明反射元数据，控制编辑器显示、序列化和蓝图可见性。
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Drone|Parameters|Environment")
     // 解释：这一行声明成员或局部变量 `AirDensity`，用于保存空中density。
-    double AirDensity = 1.225;
+    double AirDensity = 1.175;
 
     /**
      * @brief 等效阻力系数
@@ -297,23 +297,23 @@ struct GRADUATIONPROJECT_API FDroneParameters
 
     /** @brief 推力系数 $k_T$，满足 $T = k_T \omega^2$ */
     // 解释：这一行声明成员或局部变量 `ThrustCoefficient`，用于保存thrustcoefficient。
-    double ThrustCoefficient = 1.0e-5;
+    double ThrustCoefficient = 1.355525e-5;
 
     /** @brief 反扭矩系数 $k_Q$，满足 $Q = k_Q \omega^2$ */
     // 解释：这一行声明成员或局部变量 `TorqueCoefficient`，用于保存torquecoefficient。
-    double TorqueCoefficient = 1.0e-7;
+    double TorqueCoefficient = 2.66728e-7;
 
     /** @brief 最大电机角速度（rad/s） */
     // 解释：这一行声明成员或局部变量 `MaxMotorSpeed`，用于保存maxmotorspeed。
-    double MaxMotorSpeed = 669.85;
+    double MaxMotorSpeed = 1256.637;
 
     /** @brief 单电机最大推力（N） */
     // 解释：这一行声明成员或局部变量 `MaxThrust`，用于保存maxthrust。
-    double MaxThrust = 4.179;
+    double MaxThrust = 21.405352;
 
     /** @brief 单电机最大反扭矩（N·m） */
     // 解释：这一行声明成员或局部变量 `MaxTorque`，用于保存maxtorque。
-    double MaxTorque = 0.0556;
+    double MaxTorque = 0.421195;
 
     /**
      * @brief 根据空气动力学参数计算派生推进量
@@ -426,7 +426,7 @@ struct GRADUATIONPROJECT_API FDroneParameters
     // 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
     {
         // 解释：这一行给出 `if` 条件判断，只有条件成立时才会进入下面的分支逻辑。
-        if (ThrustCoefficient > KINDA_SMALL_NUMBER)
+        if (ThrustCoefficient > SMALL_NUMBER)
         // 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
         {
             // 解释：这一行返回当前函数的计算结果，把控制权交回调用方。
@@ -449,8 +449,11 @@ struct GRADUATIONPROJECT_API FDroneParameters
     {
         // 解释：调用 `CalculateMaxThrust` 执行当前步骤需要的功能逻辑。
         CalculateMaxThrust();
-        // 解释：调用 `ComputeInertiaMatrix` 执行当前步骤需要的功能逻辑。
-        ComputeInertiaMatrix();
+        // 如果外部已经显式给了惯量，就直接保留，避免被盒体近似重新覆盖掉。
+        if (Jx <= SMALL_NUMBER || Jy <= SMALL_NUMBER || Jz <= SMALL_NUMBER)
+        {
+            ComputeInertiaMatrix();
+        }
     // 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
     }
 // 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。

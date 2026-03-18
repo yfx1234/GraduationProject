@@ -1,22 +1,11 @@
 from __future__ import annotations
-
 import json
 from typing import Any, Dict, Optional
-
 from .DataTypes import ImagePacket, Pose
-
 JsonDict = Dict[str, Any]
 
-
 class AgentBase:
-    def __init__(
-        self,
-        client,
-        actor_id,
-        classname=None,
-        label="Agent",
-        unit="m",
-    ) -> None:
+    def __init__(self,client,actor_id,classname=None,label="Agent",unit="m",) -> None:
         self.client = client
         self.actor_id = actor_id
         self.classname = classname
@@ -74,13 +63,7 @@ class AgentBase:
             return {str(key): AgentBase.normalize_param(item) for key, item in value.items()}
         return str(value)
 
-    def create(
-        self,
-        pose=None,
-        classname=None,
-        label=None,
-        extra=None,
-    ) -> JsonDict:
+    def create(self,pose=None,classname=None,label=None,extra=None,) -> JsonDict:
         actor_classname = classname or self.classname
         if not actor_classname:
             raise ValueError("Type must be set before creating actor")
@@ -152,11 +135,7 @@ class AgentBase:
 
     state = get_state
 
-    def get_image_response(
-        self,
-        image_type="scene",
-        quality=90,
-    ) -> JsonDict:
+    def get_image_response(self,image_type="scene",quality=90,) -> JsonDict:
         return self.call_function(
             "GetImage",
             expect_return=True,
@@ -167,11 +146,7 @@ class AgentBase:
             parse_return_json=True,
         )
 
-    def get_image_packet(
-        self,
-        image_type="scene",
-        quality=90,
-    ) -> Optional[ImagePacket]:
+    def get_image_packet(self,image_type="scene",quality=90,) -> Optional[ImagePacket]:
         response = self.get_image_response(
             image_type=image_type,
             quality=quality,
@@ -183,11 +158,7 @@ class AgentBase:
             image_type=image_type,
         )
 
-    def get_image_base64(
-        self,
-        image_type="scene",
-        quality=90,
-    ) -> Optional[str]:
+    def get_image_base64(self,image_type="scene",quality=90,) -> Optional[str]:
         packet = self.get_image_packet(
             image_type=image_type,
             quality=quality,

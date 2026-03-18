@@ -1,17 +1,14 @@
 from __future__ import annotations
-
 from typing import Any, Dict, Optional
-
 from .AgentBase import AgentBase
-
 
 class AgentGuidance(AgentBase):
     def __init__(
         self,
         client,
-        actor_id: str = "guidance_0",
-        classname: str = "GuidanceActor",
-        label: str = "Guidance",
+        actor_id = "guidance_0",
+        classname = "GuidanceActor",
+        label = "Guidance",
     ) -> None:
         super().__init__(
             client=client,
@@ -21,142 +18,134 @@ class AgentGuidance(AgentBase):
             unit="m",
         )
 
-    @staticmethod
-    def _set_if_not_none(params: Dict[str, Any], key: str, value: Any) -> None:
-        if value is not None:
-            params[key] = value
-
-    def _call_json(self, function_name: str, dict_args: Optional[Dict[str, Any]] = None):
+    def get_state(self):
         return self.call_function(
-            function_name,
+            "GetState",
             expect_return=True,
-            dict_args=dict_args,
             parse_return_json=True,
         )
-
-    def get_state(self):
-        return self._call_json("GetState")
 
     state = get_state
 
     def reset(self):
-        return self._call_json("ResetGuidance")
-
-    def set_method(self, method: str, nav_constant: float = 4.0, iterations: int = 3):
-        return self._call_json(
-            "SetMethod",
-            dict_args={
-                "Method": str(method),
-                "NavConstant": float(nav_constant),
-                "Iterations": int(iterations),
-            },
+        return self.call_function(
+            "ResetGuidance",
+            expect_return=True,
+            parse_return_json=True,
         )
+
+    def set_method(self, method, nav_constant=4.0, iterations=3):
+        return self.call_function(
+            "SetMethod",
+            expect_return=True,
+        dict_args={
+            "Method": str(method),
+            "NavConstant": float(nav_constant),
+            "Iterations": int(iterations),
+        },
+        parse_return_json=True,
+    )
 
     def set_intercept_method(
         self,
-        method: Optional[str] = None,
-        speed: Optional[float] = None,
-        nav_gain: Optional[float] = None,
-        lead_time: Optional[float] = None,
-        capture_radius: Optional[float] = None,
+        method=None,
+        speed=None,
+        nav_gain=None,
+        lead_time=None,
+        capture_radius=None,
     ):
-        params: Dict[str, Any] = {}
-        self._set_if_not_none(params, "Method", str(method) if method else None)
-        self._set_if_not_none(params, "Speed", float(speed) if speed is not None else None)
-        self._set_if_not_none(params, "NavGain", float(nav_gain) if nav_gain is not None else None)
-        self._set_if_not_none(params, "LeadTime", float(lead_time) if lead_time is not None else None)
-        self._set_if_not_none(params, "CaptureRadiusValue", float(capture_radius) if capture_radius is not None else None)
-        return self._call_json("SetInterceptMethod", dict_args=params)
-
-    def list_intercept_agents(self):
-        return self._call_json("ListInterceptAgents")
+        params = {}
+        if method:
+            params["Method"] = str(method)
+        if speed is not None:
+            params["Speed"] = float(speed)
+        if nav_gain is not None:
+            params["NavGain"] = float(nav_gain)
+        if lead_time is not None:
+            params["LeadTime"] = float(lead_time)
+        if capture_radius is not None:
+            params["CaptureRadiusValue"] = float(capture_radius)
+        return self.call_function(
+            "SetInterceptMethod",
+            expect_return=True,
+            dict_args=params,
+            parse_return_json=True,
+        )
 
     def auto_intercept(
         self,
-        interceptor_id: str,
-        target_id: str,
-        method: Optional[str] = None,
-        speed: Optional[float] = None,
-        nav_gain: Optional[float] = None,
-        lead_time: Optional[float] = None,
-        capture_radius: Optional[float] = None,
-        stop_on_capture: bool = True,
+        interceptor_id,
+        target_id,
+        method=None,
+        speed=None,
+        nav_gain=None,
+        lead_time=None,
+        capture_radius=None,
     ):
-        params: Dict[str, Any] = {
+        params = {
             "InterceptorId": str(interceptor_id),
             "TargetId": str(target_id),
-            "bStopOnCapture": bool(stop_on_capture),
+            "bStopOnCapture": True,
         }
-        self._set_if_not_none(params, "Method", str(method) if method else None)
-        self._set_if_not_none(params, "Speed", float(speed) if speed is not None else None)
-        self._set_if_not_none(params, "NavGain", float(nav_gain) if nav_gain is not None else None)
-        self._set_if_not_none(params, "LeadTime", float(lead_time) if lead_time is not None else None)
-        self._set_if_not_none(params, "CaptureRadiusValue", float(capture_radius) if capture_radius is not None else None)
-        return self._call_json("AutoIntercept", dict_args=params)
+        if method:
+            params["Method"] = str(method)
+        if speed is not None:
+            params["Speed"] = float(speed)
+        if nav_gain is not None:
+            params["NavGain"] = float(nav_gain)
+        if lead_time is not None:
+            params["LeadTime"] = float(lead_time)
+        if capture_radius is not None:
+            params["CaptureRadiusValue"] = float(capture_radius)
+        return self.call_function(
+            "AutoIntercept",
+            expect_return=True,
+            dict_args=params,
+            parse_return_json=True,
+        )
 
-    def set_kalman_params(self, process_noise: float = 1.0, measurement_noise: float = 0.5):
-        return self._call_json(
+    def set_kalman_params(self, process_noise = 1.0, measurement_noise = 0.5):
+        return self.call_function(
             "SetKalmanParams",
+            expect_return=True,
             dict_args={
                 "ProcessNoise": float(process_noise),
                 "MeasurementNoise": float(measurement_noise),
             },
+            parse_return_json=True,
         )
 
     def visual_intercept_start(self, **payload):
-        params: Dict[str, Any] = {
-            "InterceptorId": str(payload.get("interceptor_id", "")),
-            "TargetId": str(payload.get("target_id", "")),
-            "Method": str(payload.get("method", "vision_pid_kalman")),
-        }
-
-        field_map = {
-            "desired_area": "DesiredArea",
-            "capture_area": "CaptureArea",
-            "center_tol_x": "CenterTolX",
-            "center_tol_y": "CenterTolY",
-            "capture_hold_frames": "CaptureHoldFrames",
-            "lost_to_search_frames": "LostToSearchFrames",
-            "max_forward_speed": "MaxForwardSpeed",
-            "max_reverse_speed": "MaxReverseSpeed",
-            "max_vertical_speed": "MaxVerticalSpeed",
-            "max_yaw_rate_deg": "MaxYawRateDeg",
-            "ram_area_target": "RamAreaTarget",
-            "min_ram_speed": "MinRamSpeed",
-            "intercept_distance": "InterceptDistance",
-            "search_cam_yaw_limit_deg": "SearchCamYawLimitDeg",
-            "search_cam_rate_deg": "SearchCamRateDeg",
-            "search_body_yaw_rate_deg": "SearchBodyYawRateDeg",
-            "search_cam_pitch_deg": "SearchCamPitchDeg",
-            "search_vz_amp": "SearchVzAmp",
-        }
-        for source_key, target_key in field_map.items():
-            self._set_if_not_none(params, target_key, payload.get(source_key))
-
-        if "stop_on_capture" in payload:
-            params["StopOnCaptureFlag"] = 1 if payload["stop_on_capture"] else 0
-        if "use_kalman" in payload and payload["use_kalman"] is not None:
-            params["UseKalmanFlag"] = 1 if payload["use_kalman"] else 0
-
-        return self._call_json("VisualInterceptStart", dict_args=params)
+        params = {}
+        for key, value in payload.items():
+            if value is not None:
+                params[key] = value
+                
+        return self.call_function(
+            "VisualInterceptStart",
+            expect_return=True,
+            dict_args=params,
+            parse_return_json=True,
+        )
 
     def visual_intercept_update(
         self,
         *,
-        has_detection: bool,
-        cx: float,
-        cy: float,
-        area: float,
-        area_ratio: float,
-        conf: float,
-        dt: float,
-        image_w: float,
-        image_h: float,
-        interceptor_id: str,
-        target_id: str,
+        has_detection,
+        cx,
+        cy,
+        area,
+        area_ratio,
+        conf,
+        dt,
+        image_w,
+        image_h,
+        interceptor_id,
+        target_id,
     ):
-        return self._call_json(
+        return self.call_function(
             "VisualInterceptUpdate",
+            expect_return=True,
             dict_args={
                 "HasDetection": 1 if has_detection else 0,
                 "Cx": float(cx),
@@ -170,16 +159,23 @@ class AgentGuidance(AgentBase):
                 "InterceptorId": str(interceptor_id),
                 "TargetId": str(target_id),
             },
+            parse_return_json=True,
         )
 
-    def visual_intercept_stop(self, interceptor_id: str = "", target_id: str = ""):
-        return self._call_json(
+    def visual_intercept_stop(self, interceptor_id = "", target_id = ""):
+        return self.call_function(
             "VisualInterceptStop",
+            expect_return=True,
             dict_args={
                 "InterceptorId": str(interceptor_id),
                 "TargetId": str(target_id),
             },
+            parse_return_json=True,
         )
 
     def visual_intercept_state(self):
-        return self._call_json("VisualInterceptState")
+        return self.call_function(
+            "VisualInterceptState",
+            expect_return=True,
+            parse_return_json=True,
+        )
