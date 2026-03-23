@@ -1,0 +1,4 @@
+interface:
+  display_name: "GraduationProject UE Sim"
+  short_description: "Repo guide for the UE5.7 UAV sim workspace."
+  default_prompt: "Use the live code tree as the source of truth, trace UE command routing before editing wrappers, and treat PythonClient/Run as the active Python mainline."

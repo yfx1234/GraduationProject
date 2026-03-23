@@ -1,0 +1,676 @@
+{
+  "1": {
+    "doi": "10.1109/CVPR.2017.106",
+    "authors": [
+      "Tsung-Yi Lin",
+      "Piotr Dollar",
+      "Ross Girshick",
+      "Kaiming He",
+      "Bharath Hariharan",
+      "Serge Belongie"
+    ],
+    "title": "Feature Pyramid Networks for Object Detection",
+    "container": "2017 IEEE Conference on Computer Vision and Pattern Recognition (CVPR)",
+    "year": "2017"
+  },
+  "2": {
+    "doi": "10.1109/ICCV.2017.324",
+    "authors": [
+      "Tsung-Yi Lin",
+      "Priya Goyal",
+      "Ross Girshick",
+      "Kaiming He",
+      "Piotr Dollar"
+    ],
+    "title": "Focal Loss for Dense Object Detection",
+    "container": "2017 IEEE International Conference on Computer Vision (ICCV)",
+    "year": "2017"
+  },
+  "3": {
+    "doi": "10.1109/CVPR42600.2020.01079",
+    "authors": [
+      "Mingxing Tan",
+      "Ruoming Pang",
+      "Quoc V. Le"
+    ],
+    "title": "EfficientDet: Scalable and Efficient Object Detection",
+    "container": "2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)",
+    "year": "2020"
+  },
+  "4": {
+    "doi": "10.1007/978-3-030-58452-8_13",
+    "authors": [
+      "Nicolas Carion",
+      "Francisco Massa",
+      "Gabriel Synnaeve",
+      "Nicolas Usunier",
+      "Alexander Kirillov",
+      "Sergey Zagoruyko"
+    ],
+    "title": "End-to-End Object Detection with Transformers",
+    "container": "Lecture Notes in Computer Science",
+    "year": "2020"
+  },
+  "5": {
+    "doi": "10.1109/CVPR52688.2022.01330",
+    "authors": [
+      "Chenhongyi Yang",
+      "Zehao Huang",
+      "Naiyan Wang"
+    ],
+    "title": "QueryDet: Cascaded Sparse Query for Accelerating High-Resolution Small Object Detection",
+    "container": "2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)",
+    "year": "2022"
+  },
+  "6": {
+    "doi": "10.1109/TCSVT.2019.2905881",
+    "authors": [
+      "Xi Liang",
+      "Jing Zhang",
+      "Li Zhuo",
+      "Yuzhao Li",
+      "Qi Tian"
+    ],
+    "title": "Small Object Detection in Unmanned Aerial Vehicle Images Using Feature Fusion and Scaling-Based Single Shot Detector With Spatial Context Analysis",
+    "container": "IEEE Transactions on Circuits and Systems for Video Technology",
+    "year": "2020"
+  },
+  "7": {
+    "doi": "10.1016/j.image.2022.116675",
+    "authors": [
+      "Onur Can Koyun",
+      "Reyhan Kevser Keser",
+      "İbrahim Batuhan Akkaya",
+      "Behçet Uğur Töreyin"
+    ],
+    "title": "Focus-and-Detect: A small object detection framework for aerial images",
+    "container": "Signal Processing: Image Communication",
+    "year": "2022"
+  },
+  "8": {
+    "doi": "10.1109/TIM.2024.3381272",
+    "authors": [
+      "Lingjie Jiang",
+      "Baoxi Yuan",
+      "Jiawei Du",
+      "Boyu Chen",
+      "Hanfei Xie",
+      "Juan Tian",
+      "Ziqi Yuan"
+    ],
+    "title": "MFFSODNet: Multiscale Feature Fusion Small Object Detection Network for UAV Aerial Images",
+    "container": "IEEE Transactions on Instrumentation and Measurement",
+    "year": "2024"
+  },
+  "9": {
+    "doi": "10.1016/j.jag.2022.102966",
+    "authors": [
+      "Wei Han",
+      "Jun Li",
+      "Sheng Wang",
+      "Yi Wang",
+      "Jining Yan",
+      "Runyu Fan",
+      "Xiaohan Zhang",
+      "Lizhe Wang"
+    ],
+    "title": "A context-scale-aware detector and a new benchmark for remote sensing small weak object detection in unmanned aerial vehicle images",
+    "container": "International Journal of Applied Earth Observation and Geoinformation",
+    "year": "2022"
+  },
+  "10": {
+    "doi": "10.1016/j.engappai.2023.107455",
+    "authors": [
+      "Gang Song",
+      "Hongwei Du",
+      "Xinyue Zhang",
+      "Fangxun Bao",
+      "Yunfeng Zhang"
+    ],
+    "title": "Small object detection in unmanned aerial vehicle images using multi-scale hybrid attention",
+    "container": "Engineering Applications of Artificial Intelligence",
+    "year": "2024"
+  },
+  "11": {
+    "doi": "10.1109/ICPR48806.2021.9413340",
+    "authors": [
+      "Jinwang Wang",
+      "Wen Yang",
+      "Haowen Guo",
+      "Ruixiang Zhang",
+      "Gui-Song Xia"
+    ],
+    "title": "Tiny Object Detection in Aerial Images",
+    "container": "2020 25th International Conference on Pattern Recognition (ICPR)",
+    "year": "2021"
+  },
+  "12": {
+    "doi": "10.1109/TPAMI.2021.3119563",
+    "authors": [
+      "Pengfei Zhu",
+      "Longyin Wen",
+      "Dawei Du",
+      "Xiao Bian",
+      "Heng Fan",
+      "Qinghua Hu",
+      "Haibin Ling"
+    ],
+    "title": "Detection and Tracking Meet Drones Challenge",
+    "container": "IEEE Transactions on Pattern Analysis and Machine Intelligence",
+    "year": "2022"
+  },
+  "13": {
+    "doi": "10.1007/s11263-019-01266-1",
+    "authors": [
+      "Hongyang Yu",
+      "Guorong Li",
+      "Weigang Zhang",
+      "Qingming Huang",
+      "Dawei Du",
+      "Qi Tian",
+      "Nicu Sebe"
+    ],
+    "title": "The Unmanned Aerial Vehicle Benchmark: Object Detection, Tracking and Baseline",
+    "container": "International Journal of Computer Vision",
+    "year": "2019"
+  },
+  "14": {
+    "doi": "10.1109/TITS.2022.3177627",
+    "authors": [
+      "Jie Zhao",
+      "Jingshu Zhang",
+      "Dongdong Li",
+      "Dong Wang"
+    ],
+    "title": "Vision-Based Anti-UAV Detection and Tracking",
+    "container": "IEEE Transactions on Intelligent Transportation Systems",
+    "year": "2022"
+  },
+  "15": {
+    "doi": "10.1109/TMM.2021.3128047",
+    "authors": [
+      "Nan Jiang",
+      "Kuiran Wang",
+      "Xiaoke Peng",
+      "Xuehui Yu",
+      "Qiang Wang",
+      "Junliang Xing",
+      "Guorong Li",
+      "Guodong Guo",
+      "Qixiang Ye",
+      "Jianbin Jiao",
+      "Jian Zhao",
+      "Zhenjun Han"
+    ],
+    "title": "Anti-UAV: A Large-Scale Benchmark for Vision-Based UAV Tracking",
+    "container": "IEEE Transactions on Multimedia",
+    "year": "2023"
+  },
+  "16": {
+    "doi": "10.1109/CVPRW59228.2023.00305",
+    "authors": [
+      "Qianjin Yu",
+      "Yinchao Ma",
+      "Jianfeng He",
+      "Dawei Yang",
+      "Tianzhu Zhang"
+    ],
+    "title": "A Unified Transformer-based Tracker for Anti-UAV Tracking",
+    "container": "2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)",
+    "year": "2023"
+  },
+  "17": {
+    "doi": "10.1109/WACV51458.2022.00374",
+    "authors": [
+      "Leon Amadeus Varga",
+      "Benjamin Kiefer",
+      "Martin Messmer",
+      "Andreas Zell"
+    ],
+    "title": "SeaDronesSee: A Maritime Benchmark for Detecting Humans in Open Water",
+    "container": "2022 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)",
+    "year": "2022"
+  },
+  "18": {
+    "doi": "10.1109/WACV45572.2020.9093284",
+    "authors": [
+      "Elizabeth Bondi",
+      "Raghav Jain",
+      "Palash Aggrawal",
+      "Saket Anand",
+      "Robert Hannaford",
+      "Ashish Kapoor",
+      "Jim Piavis",
+      "Shital Shah",
+      "Lucas Joppa",
+      "Bistra Dilkina",
+      "Milind Tambe"
+    ],
+    "title": "BIRDSAI: A Dataset for Detection and Tracking in Aerial Thermal Infrared Videos",
+    "container": "2020 IEEE Winter Conference on Applications of Computer Vision (WACV)",
+    "year": "2020"
+  },
+  "19": {
+    "doi": "10.1109/TPAMI.2022.3232854",
+    "authors": [
+      "Chunhui Zhang",
+      "Guanjie Huang",
+      "Li Liu",
+      "Shan Huang",
+      "Yinan Yang",
+      "Xiang Wan",
+      "Shiming Ge",
+      "Dacheng Tao"
+    ],
+    "title": "WebUAV-3M: A Benchmark for Unveiling the Power of Million-Scale Deep UAV Tracking",
+    "container": "IEEE Transactions on Pattern Analysis and Machine Intelligence",
+    "year": "2023"
+  },
+  "20": {
+    "doi": "10.1109/ICCVW54120.2021.00142",
+    "authors": [
+      "Brian K. S. Isaac-Medina",
+      "Matt Poyser",
+      "Daniel Organisciak",
+      "Chris G. Willcocks",
+      "Toby P. Breckon",
+      "Hubert P. H. Shum"
+    ],
+    "title": "Unmanned Aerial Vehicle Visual Detection and Tracking using Deep Neural Networks: A Performance Benchmark",
+    "container": "2021 IEEE/CVF International Conference on Computer Vision Workshops (ICCVW)",
+    "year": "2021"
+  },
+  "21": {
+    "doi": "10.1109/ICCVW.2019.00030",
+    "authors": [
+      "Dawei Du",
+      "Pengfei Zhu",
+      "Longyin Wen",
+      "Xiao Bian",
+      "Haibin Lin",
+      "Qinghua Hu",
+      "Tao Peng",
+      "Jiayu Zheng",
+      "Xinyao Wang",
+      "Yue Zhang",
+      "Liefeng Bo",
+      "Hailin Shi",
+      "Rui Zhu",
+      "Aashish Kumar",
+      "Aijin Li",
+      "Almaz Zinollayev",
+      "Anuar Askergaliyev",
+      "Arne Schumann",
+      "Binjie Mao",
+      "Byeongwon Lee",
+      "Chang Liu",
+      "Changrui Chen",
+      "Chunhong Pan",
+      "Chunlei Huo",
+      "Da Yu",
+      "DeChun Cong",
+      "Dening Zeng",
+      "Dheeraj Reddy Pailla",
+      "Di Li",
+      "Dong Wang",
+      "Donghyeon Cho",
+      "Dongyu Zhang",
+      "Furui Bai",
+      "George Jose",
+      "Guangyu Gao",
+      "Guizhong Liu",
+      "Haitao Xiong",
+      "Hao Qi",
+      "Haoran Wang",
+      "Heqian Qiu",
+      "HongLiang Li",
+      "Huchuan Lu",
+      "Ildoo Kim",
+      "Jaekyum Kim",
+      "Jane Shen",
+      "Jihoon Lee",
+      "Jing Ge",
+      "Jingjing Xu",
+      "Jingkai Zhou",
+      "Jonas Meier",
+      "Jun Won Choi",
+      "Junhao Hu",
+      "Junyi Zhang",
+      "Junying Huang",
+      "Kaiqi Huang",
+      "Keyang Wang",
+      "Lars Sommer",
+      "Lei Jin",
+      "Lei Zhang",
+      "Lianghua Huang",
+      "Lin Sun",
+      "Lucas Steinmann",
+      "Meixia Jia",
+      "Nuo Xu",
+      "Pengyi Zhang",
+      "Qiang Chen",
+      "Qingxuan Lv",
+      "Qiong Liu",
+      "Qishang Cheng",
+      "Sai Saketh Chennamsetty",
+      "Shuhao Chen",
+      "Shuo Wei",
+      "Srinivas S S Kruthiventi",
+      "Sungeun Hong",
+      "Sungil Kang",
+      "Tong Wu",
+      "Tuo Feng",
+      "Varghese Alex Kollerathu",
+      "Wanqi Li",
+      "Wei Dai",
+      "Weida Qin",
+      "Weiyang Wang",
+      "Xiaorui Wang",
+      "Xiaoyu Chen",
+      "Xin Chen",
+      "Xin Sun",
+      "Xin Zhang",
+      "Xin Zhao",
+      "Xindi Zhang",
+      "Xinyu Zhang",
+      "Xuankun Chen",
+      "Xudong Wei",
+      "Xuzhang Zhang",
+      "Yanchao Li",
+      "Yifu Chen",
+      "Yu Heng Toh",
+      "Yu Zhang",
+      "Yu Zhu",
+      "Yunxin Zhong",
+      "Zexin Wang",
+      "Zhikang Wang",
+      "Zichen Song",
+      "Ziming Liu"
+    ],
+    "title": "VisDrone-DET2019: The Vision Meets Drone Object Detection in Image Challenge Results",
+    "container": "2019 IEEE/CVF International Conference on Computer Vision Workshop (ICCVW)",
+    "year": "2019"
+  },
+  "22": {
+    "doi": "10.1109/ICCVW54120.2021.00319",
+    "authors": [
+      "Yaru Cao",
+      "Zhijian He",
+      "Lujia Wang",
+      "Wenguan Wang",
+      "Yixuan Yuan",
+      "Dingwen Zhang",
+      "Jinglin Zhang",
+      "Pengfei Zhu",
+      "Luc Van Gool",
+      "Junwei Han",
+      "Steven Hoi",
+      "Qinghua Hu",
+      "Ming Liu",
+      "Chong Cheng",
+      "Fanfan Liu",
+      "Guojin Cao",
+      "Guozhen Li",
+      "Hongkai Wang",
+      "Jianye He",
+      "Junfeng Wan",
+      "Qi Wan",
+      "Qi Zhao",
+      "Shuchang Lyu",
+      "Wenzhe Zhao",
+      "Xiaoqiang Lu",
+      "Xingkui Zhu",
+      "Yingjie Liu",
+      "Yixuan Lv",
+      "Yujing Ma",
+      "Yuting Yang",
+      "Zhe Wang",
+      "Zhenyu Xu",
+      "Zhipeng Luo",
+      "Zhimin Zhang",
+      "Zhiguang Zhang",
+      "Zihao Li",
+      "Zixiao Zhang"
+    ],
+    "title": "VisDrone-DET2021: The Vision Meets Drone Object detection Challenge Results",
+    "container": "2021 IEEE/CVF International Conference on Computer Vision Workshops (ICCVW)",
+    "year": "2021"
+  },
+  "23": {
+    "doi": "10.1109/JSEN.2022.3171293",
+    "authors": [
+      "Muhammad Asif Khan",
+      "Hamid Menouar",
+      "Aisha Eldeeb",
+      "Adnan Abu-Dayya",
+      "Flora D. Salim"
+    ],
+    "title": "On the Detection of Unauthorized Drones—Techniques and Future Perspectives: A Review",
+    "container": "IEEE Sensors Journal",
+    "year": "2022"
+  },
+  "24": {
+    "doi": "10.1109/ICIP.2017.8296962",
+    "authors": [
+      "Nicolai Wojke",
+      "Alex Bewley",
+      "Dietrich Paulus"
+    ],
+    "title": "Simple online and realtime tracking with a deep association metric",
+    "container": "2017 IEEE International Conference on Image Processing (ICIP)",
+    "year": "2017"
+  },
+  "25": {
+    "doi": "10.1007/978-3-031-20047-2_1",
+    "authors": [
+      "Yifu Zhang",
+      "Peize Sun",
+      "Yi Jiang",
+      "Dongdong Yu",
+      "Fucheng Weng",
+      "Zehuan Yuan",
+      "Ping Luo",
+      "Wenyu Liu",
+      "Xinggang Wang"
+    ],
+    "title": "ByteTrack: Multi-object Tracking by Associating Every Detection Box",
+    "container": "Lecture Notes in Computer Science",
+    "year": "2022"
+  },
+  "26": {
+    "doi": "10.1007/978-3-030-58548-8_28",
+    "authors": [
+      "Xingyi Zhou",
+      "Vladlen Koltun",
+      "Philipp Krähenbühl"
+    ],
+    "title": "Tracking Objects as Points",
+    "container": "Lecture Notes in Computer Science",
+    "year": "2020"
+  },
+  "27": {
+    "doi": "10.1109/CVPR.2019.00441",
+    "authors": [
+      "Bo Li",
+      "Wei Wu",
+      "Qiang Wang",
+      "Fangyi Zhang",
+      "Junliang Xing",
+      "Junjie Yan"
+    ],
+    "title": "SiamRPN++: Evolution of Siamese Visual Tracking With Very Deep Networks",
+    "container": "2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)",
+    "year": "2019"
+  },
+  "28": {
+    "doi": "10.1109/ICCV.2019.00628",
+    "authors": [
+      "Goutam Bhat",
+      "Martin Danelljan",
+      "Luc Van Gool",
+      "Radu Timofte"
+    ],
+    "title": "Learning Discriminative Model Prediction for Tracking",
+    "container": "2019 IEEE/CVF International Conference on Computer Vision (ICCV)",
+    "year": "2019"
+  },
+  "29": {
+    "doi": "10.1109/CVPR46437.2021.00248",
+    "authors": [
+      "Linyu Zheng",
+      "Ming Tang",
+      "Yingying Chen",
+      "Guibo Zhu",
+      "Jinqiao Wang",
+      "Hanqing Lu"
+    ],
+    "title": "Improving Multiple Object Tracking with Single Object Tracking",
+    "container": "2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)",
+    "year": "2021"
+  },
+  "30": {
+    "doi": "10.1109/CVPR52729.2023.00934",
+    "authors": [
+      "Jinkun Cao",
+      "Jiangmiao Pang",
+      "Xinshuo Weng",
+      "Rawal Khirodkar",
+      "Kris Kitani"
+    ],
+    "title": "Observation-Centric SORT: Rethinking SORT for Robust Multi-Object Tracking",
+    "container": "2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)",
+    "year": "2023"
+  },
+  "31": {
+    "doi": "10.1007/s11263-020-01375-2",
+    "authors": [
+      "Jonathon Luiten",
+      "Aljos̆a Os̆ep",
+      "Patrick Dendorfer",
+      "Philip Torr",
+      "Andreas Geiger",
+      "Laura Leal-Taixé",
+      "Bastian Leibe"
+    ],
+    "title": "HOTA: A Higher Order Metric for Evaluating Multi-object Tracking",
+    "container": "International Journal of Computer Vision",
+    "year": "2020"
+  },
+  "32": {
+    "doi": "10.1109/TMECH.2019.2906430",
+    "authors": [
+      "Dongliang Zheng",
+      "Hesheng Wang",
+      "Jingchuan Wang",
+      "Xiufeng Zhang",
+      "Weidong Chen"
+    ],
+    "title": "Toward Visibility Guaranteed Visual Servoing Control of Quadrotor UAVs",
+    "container": "IEEE/ASME Transactions on Mechatronics",
+    "year": "2019"
+  },
+  "33": {
+    "doi": "10.1109/LRA.2023.3245416",
+    "authors": [
+      "Guojie Wang",
+      "Jiahu Qin",
+      "Qingchen Liu",
+      "Qichao Ma",
+      "Cong Zhang"
+    ],
+    "title": "Image-Based Visual Servoing of Quadrotors to Arbitrary Flight Targets",
+    "container": "IEEE Robotics and Automation Letters",
+    "year": "2023"
+  },
+  "34": {
+    "doi": "10.1109/LRA.2021.3101878",
+    "authors": [
+      "Jianan Li",
+      "Hui Xie",
+      "Kin Huat Low",
+      "Jianwen Yong",
+      "Boyang Li"
+    ],
+    "title": "Image-Based Visual Servoing of Rotorcrafts to Planar Visual Targets of Arbitrary Orientation",
+    "container": "IEEE Robotics and Automation Letters",
+    "year": "2021"
+  },
+  "35": {
+    "doi": "10.2514/6.2016-2092",
+    "authors": [
+      "Marinela G. Popova",
+      "Hugh H. Liu"
+    ],
+    "title": "Position-Based Visual Servoing for Target Tracking by a Quadrotor UAV",
+    "container": "AIAA Guidance, Navigation, and Control Conference",
+    "year": "2016"
+  },
+  "36": {
+    "doi": "10.1371/journal.pone.0225092",
+    "authors": [
+      "Philippe Martin Wyder",
+      "Yan-Song Chen",
+      "Adrian J. Lasrado",
+      "Rafael J. Pelles",
+      "Robert Kwiatkowski",
+      "Edith O. A. Comas",
+      "Richard Kennedy",
+      "Arjun Mangla",
+      "Zixi Huang",
+      "Xiaotian Hu",
+      "Zhiyao Xiong",
+      "Tomer Aharoni",
+      "Tzu-Chan Chuang",
+      "Hod Lipson"
+    ],
+    "title": "Autonomous drone hunter operating by deep learning and all-onboard computations in GPS-denied environments",
+    "container": "PLOS ONE",
+    "year": "2019"
+  },
+  "37": {
+    "doi": "10.3390/app9214552",
+    "authors": [
+      "Hsiu-Min Chuang",
+      "Dongqing He",
+      "Akio Namiki"
+    ],
+    "title": "Autonomous Target Tracking of UAV Using High-Speed Visual Feedback",
+    "container": "Applied Sciences",
+    "year": "2019"
+  },
+  "38": {
+    "doi": "10.1016/j.ast.2020.106061",
+    "authors": [
+      "Hao Liu",
+      "Yafei Lyu",
+      "Wanbing Zhao"
+    ],
+    "title": "Robust visual servoing formation tracking control for quadrotor UAV team",
+    "container": "Aerospace Science and Technology",
+    "year": "2020"
+  },
+  "39": {
+    "doi": "10.1007/978-3-319-22416-9_30",
+    "authors": [
+      "Reuben Strydom",
+      "Saul Thurrowgood",
+      "Aymeric Denuelle",
+      "Mandyam V. Srinivasan"
+    ],
+    "title": "UAV Guidance: A Stereo-Based Technique for Interception of Stationary or Moving Targets",
+    "container": "Lecture Notes in Computer Science",
+    "year": "2015"
+  },
+  "40": {
+    "doi": "10.1007/978-3-319-67361-5_40",
+    "authors": [
+      "Shital Shah",
+      "Debadeepta Dey",
+      "Chris Lovett",
+      "Ashish Kapoor"
+    ],
+    "title": "AirSim: High-Fidelity Visual and Physical Simulation for Autonomous Vehicles",
+    "container": "Springer Proceedings in Advanced Robotics",
+    "year": "2017"
+  }
+}

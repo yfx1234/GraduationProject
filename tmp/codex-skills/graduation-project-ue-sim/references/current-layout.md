@@ -1,0 +1,82 @@
+# Current Layout
+
+## Live Tree First
+
+Treat the current repository tree and the current branch state as authoritative.
+
+- Active Unreal source root: `Source/GraduationProject`
+- Active Python source root: `PythonClient/Run`
+- Active Python SDK layer: `PythonClient/Run/GraduationSIM`
+- Workspace marker: `GraduationProject.uproject`
+
+## Live Unreal Modules
+
+The live `Source/GraduationProject` tree currently exposes these active directories in the working tree:
+
+- `Core`
+- `Drone`
+- `Guidance`
+- `Vision`
+
+Read these files first when orienting:
+
+- `Source/GraduationProject/Core/Network/CommandRouter.h`
+- `Source/GraduationProject/Core/Network/FCommandHandle.h`
+- `Source/GraduationProject/Core/Network/SimGameInstance.h`
+- `Source/GraduationProject/Drone/DronePawn.h`
+- `Source/GraduationProject/Drone/DroneMovementComponent.h`
+- `Source/GraduationProject/Guidance/GuidanceActor.h`
+- `Source/GraduationProject/Guidance/VisualInterceptController.h`
+- `Source/GraduationProject/Guidance/KalmanPredictor.h`
+- `Source/GraduationProject/GraduationProject.Build.cs`
+
+## Transition State
+
+This repository is in an active structural migration, not a clean static snapshot.
+
+At the time of this skill update, `git status --short` shows tracked deletions or removals for:
+
+- `Source/GraduationProject/Turret/*`
+- `Source/GraduationProject/UI/*`
+- `Source/GraduationProject/Guidance/GuidanceMethods.*`
+- `Source/GraduationProject/Guidance/IGuidanceMethod.*`
+- `Source/GraduationProject/Guidance/SlidingModeGuidance.*`
+- `PythonClient/Run/intercept_fixed_cam.py`
+
+Also note the current worktree contains a new untracked `PythonClient/Run/params.py`.
+
+Treat these as branch-state facts. Do not reintroduce deleted modules unless the user explicitly asks for that restoration.
+
+## Live Python Mainline
+
+The live `PythonClient/Run` tree currently exposes:
+
+- `params.py` as shared runtime configuration for run, collect, and train flows
+- `run.py` for the visual intercept runtime
+- `Collect.py` for collection and auto-labeling
+- `Train.py` for dataset preparation and YOLO training
+- `GraduationSIM/AgentBase.py` for shared wrapper types and generic actor operations
+- `GraduationSIM/AgentDrone.py` and `GraduationSIM/AgentGuidance.py` for typed wrappers
+- `GraduationSIM/TCPClient.py` for line-delimited JSON transport
+- `GraduationSIM/__init__.py` for exported helpers, path resolution, and vendored Ultralytics setup
+
+Important current fact: there is no `GraduationSIM/DataTypes.py` in the live working tree. Shared helper types now live directly in `AgentBase.py` and `__init__.py`.
+
+## Vendored And Generated Boundaries
+
+Treat these paths as secondary unless the task explicitly targets them:
+
+- `PythonClient/YOLO/ultralytics` is vendored third-party source
+- `PythonClient/YOLO/dataset`, `runs`, `results`, and `weights` are data and artifact roots
+- `Binaries`, `Intermediate`, `DerivedDataCache`, and `Saved` are generated Unreal outputs
+- `_video_frames` and `_codex_*` are local analysis artifacts
+- `output/doc` and `tmp/docs` are document-generation outputs, not runtime code paths
+
+## Documents Worth Reading
+
+Use these documents selectively:
+
+- `README.md` for top-level framing and launch sequence
+- `Document/项目实现流程与方法详解.md` for formulas, architecture rationale, and reading order
+- `Document/数学算法流程与公式推导.md` for math-heavy derivations
+- `Docs/thesis_task_and_review.md` for thesis tasks, references, and writing structure

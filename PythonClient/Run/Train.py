@@ -1,247 +1,167 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
-import os
-import sys
 from pathlib import Path
 
+from params import train as trainConfig, yolo as yoloConfig
+from GraduationSIM import (
+    ensure_ultralytics_import_path,
+    next_run_name,
+    pick_training_model_path,
+    prepare_dataset,
+    resolve_paths,
+    scan_dataset,
+)
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
-
-
-def ensure_ultralytics_import_path(project_root):
-    source_root = project_root / "PythonClient" / "YOLO" / "ultralytics"
-    settings_root = project_root / "PythonClient" / ".ultralytics_config"
-    settings_root.mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("YOLO_CONFIG_DIR", str(settings_root))
-    os.environ.setdefault("YOLO_AUTOINSTALL", "False")
-    os.environ.setdefault("YOLO_VERBOSE", "False")
-    source_text = str(source_root)
-    if source_text not in sys.path:
-        sys.path.insert(0, source_text)
-
-
-def list_samples(dataset_root, split):
-    images_dir = dataset_root / "images" / split
-    labels_dir = dataset_root / "labels" / split
-    samples = []
-    if not images_dir.exists():
-        return samples
-    for image_path in sorted(images_dir.iterdir()):
-        if image_path.is_file() and image_path.suffix.lower() in IMAGE_EXTS:
-            samples.append((image_path, labels_dir / f"{image_path.stem}.txt"))
-    return samples
+TRAIN_IMAGE_SIZE = 640
+TRAIN_WORKERS = 4
+TRAIN_DEVICE = None
+TRAIN_PATIENCE = 20
+TRAIN_COSINE_LR = True
+TRAIN_CLOSE_MOSAIC = 10
+TRAIN_DEGREES = 0.0
+TRAIN_TRANSLATE = 0.06
+TRAIN_SCALE = 0.35
+TRAIN_HORIZONTAL_FLIP = 0.5
+TRAIN_MOSAIC = 0.20
+TRAIN_MIXUP = 0.0
+TRAIN_COPY_PASTE = 0.0
+TRAIN_RESUME = False
 
 
-def ensure_label_file(path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
-        path.write_text("", encoding="utf-8")
+def install_progress_callbacks(model) -> None:
+    progressState = {"batch": 0, "next": 0.25}
 
+    def on_train_start(trainer):
+        epochs = int(getattr(trainer, "epochs", getattr(trainer.args, "epochs", 0)))
+        batchCount = len(trainer.train_loader) if getattr(trainer, "train_loader", None) is not None else 0
+        print(f"[train] start epochs={epochs} batches_per_epoch={batchCount}", flush=True)
 
-def move_sample(sample, dataset_root, dst_split):
-    image_path, label_path = sample
-    dst_image_dir = dataset_root / "images" / dst_split
-    dst_label_dir = dataset_root / "labels" / dst_split
-    dst_image_dir.mkdir(parents=True, exist_ok=True)
-    dst_label_dir.mkdir(parents=True, exist_ok=True)
-    dst_image = dst_image_dir / image_path.name
-    dst_label = dst_label_dir / label_path.name
-    image_path.replace(dst_image)
-    if label_path.exists():
-        label_path.replace(dst_label)
-    else:
-        dst_label.write_text("", encoding="utf-8")
+    def on_train_epoch_start(trainer):
+        progressState["batch"] = 0
+        progressState["next"] = 0.25
+        print(f"[train] epoch {int(trainer.epoch) + 1}/{int(trainer.epochs)} started", flush=True)
 
-
-def write_data_yaml(dataset_root, use_train_as_val=False):
-    yaml_path = dataset_root / "data.yaml"
-    yaml_path.write_text(
-        "path: " + dataset_root.as_posix() + "\n"
-        "train: images/train\n"
-        f"val: {'images/train' if use_train_as_val else 'images/val'}\n\n"
-        "nc: 1\n"
-        "names:\n"
-        "  0: drone\n",
-        encoding="utf-8",
-    )
-    return yaml_path
-
-
-def prepare_dataset(dataset_root):
-    for split in ("train", "val"):
-        (dataset_root / "images" / split).mkdir(parents=True, exist_ok=True)
-        (dataset_root / "labels" / split).mkdir(parents=True, exist_ok=True)
-
-    train_samples = list_samples(dataset_root, "train")
-    val_samples = list_samples(dataset_root, "val")
-    if not train_samples and val_samples:
-        move_sample(val_samples[0], dataset_root, "train")
-    train_samples = list_samples(dataset_root, "train")
-    val_samples = list_samples(dataset_root, "val")
-    if not val_samples and len(train_samples) > 1:
-        move_sample(train_samples[-1], dataset_root, "val")
-
-    for split in ("train", "val"):
-        for _, label_path in list_samples(dataset_root, split):
-            ensure_label_file(label_path)
-
-    train_count = len(list_samples(dataset_root, "train"))
-    val_count = len(list_samples(dataset_root, "val"))
-    if train_count <= 0:
-        raise RuntimeError(f"dataset has no training images: {dataset_root}")
-
-    yaml_path = write_data_yaml(dataset_root, use_train_as_val=(val_count <= 0))
-    return yaml_path, train_count, val_count
-
-
-def scan_split(dataset_root, split):
-    stats = {
-        "images": 0,
-        "labeled_images": 0,
-        "empty_labels": 0,
-        "missing_labels": 0,
-        "invalid_labels": 0,
-        "boxes": 0,
-        "min_area_ratio": 0.0,
-        "max_area_ratio": 0.0,
-        "mean_area_ratio": 0.0,
-    }
-    area_ratios = []
-    for image_path, label_path in list_samples(dataset_root, split):
-        stats["images"] += 1
-        if not label_path.exists():
-            stats["missing_labels"] += 1
-            ensure_label_file(label_path)
-            stats["empty_labels"] += 1
-            continue
-        text = label_path.read_text(encoding="utf-8").strip()
-        if not text:
-            stats["empty_labels"] += 1
-            continue
-        valid_image = False
-        for raw_line in text.splitlines():
-            parts = raw_line.strip().split()
-            if len(parts) != 5:
-                stats["invalid_labels"] += 1
-                continue
+    def on_train_batch_end(trainer):
+        totalBatches = len(trainer.train_loader) if getattr(trainer, "train_loader", None) is not None else 0
+        if totalBatches <= 0:
+            return
+        progressState["batch"] += 1
+        progress = float(progressState["batch"]) / float(totalBatches)
+        if progressState["batch"] == totalBatches or progress + 1e-9 >= progressState["next"]:
+            lossText = ""
             try:
-                _, _, _, bw, bh = [float(item) for item in parts]
-            except ValueError:
-                stats["invalid_labels"] += 1
-                continue
-            if bw <= 0.0 or bh <= 0.0 or bw > 1.0 or bh > 1.0:
-                stats["invalid_labels"] += 1
-                continue
-            valid_image = True
-            stats["boxes"] += 1
-            area_ratios.append(bw * bh)
-        if valid_image:
-            stats["labeled_images"] += 1
-    if area_ratios:
-        stats["min_area_ratio"] = min(area_ratios)
-        stats["max_area_ratio"] = max(area_ratios)
-        stats["mean_area_ratio"] = sum(area_ratios) / len(area_ratios)
-    return stats
+                lossText = f" loss={float(trainer.loss.detach().cpu().item()):.4f}"
+            except Exception:
+                pass
+            print(
+                f"[train] epoch {int(trainer.epoch) + 1}/{int(trainer.epochs)} batch {progressState['batch']}/{totalBatches}{lossText}",
+                flush=True,
+            )
+            progressState["next"] += 0.25
 
+    def on_fit_epoch_end(trainer):
+        parts = []
+        try:
+            lossItems = trainer.label_loss_items(trainer.tloss)
+            if isinstance(lossItems, dict):
+                for key, value in lossItems.items():
+                    parts.append(f"{key.split('/')[-1]}={float(value):.4f}")
+        except Exception:
+            pass
+        metrics = getattr(trainer, "metrics", {}) or {}
+        if isinstance(metrics, dict):
+            for key in sorted(metrics):
+                lowered = key.lower()
+                if any(token in lowered for token in ("map50-95", "map50", "precision", "recall", "fitness")):
+                    value = metrics.get(key)
+                    if isinstance(value, (int, float)):
+                        parts.append(f"{key.split('/')[-1]}={float(value):.4f}")
+        print(f"[train] epoch {int(trainer.epoch) + 1}/{int(trainer.epochs)} finished: {', '.join(parts) if parts else 'no metrics'}", flush=True)
 
-def scan_dataset(dataset_root):
-    train_stats = scan_split(dataset_root, "train")
-    val_stats = scan_split(dataset_root, "val")
-    return {
-        "train": train_stats,
-        "val": val_stats,
-        "total_boxes": int(train_stats["boxes"] + val_stats["boxes"]),
-    }
-
-
-def pick_model_path(weights_dir):
-    preferred = weights_dir / "yolo26n.pt"
-    if preferred.exists():
-        return preferred
-    candidates = sorted(weights_dir.glob("*.pt"))
-    if not candidates:
-        raise RuntimeError(f"no pretrained weights found in: {weights_dir}")
-    return candidates[0]
+    model.add_callback("on_train_start", on_train_start)
+    model.add_callback("on_train_epoch_start", on_train_epoch_start)
+    model.add_callback("on_train_batch_end", on_train_batch_end)
+    model.add_callback("on_fit_epoch_end", on_fit_epoch_end)
 
 
 def run():
-    project_root = Path(__file__).resolve().parents[2]
-    dataset_root = project_root / "PythonClient" / "YOLO" / "dataset"
-    weights_dir = project_root / "PythonClient" / "YOLO" / "weights"
-    project_dir = project_root / "PythonClient" / "YOLO" / "runs" / "detect"
-    results_root = project_root / "PythonClient" / "YOLO" / "results"
+    paths = resolve_paths(__file__)
+    datasetRoot = paths.dataset_root
+    resultsRoot = paths.results_root
+    projectDir = paths.runs_root
+    epochs = int(trainConfig.get("epochs", 100) or 100)
+    batch = int(trainConfig.get("batch", 16) or 16)
+    runName = next_run_name(paths)
 
-    epochs = 100
-    batch = 16
-    imgsz = 640
-    workers = 4
-    device = None
-    run_name = "collect_train"
-    patience = 20
-
-    yaml_path, train_count, val_count = prepare_dataset(dataset_root)
-    dataset_stats = scan_dataset(dataset_root)
-    if dataset_stats["train"]["boxes"] <= 0:
+    dataYamlPath, trainCount, valCount = prepare_dataset(datasetRoot)
+    datasetStats = scan_dataset(datasetRoot)
+    if datasetStats["train"]["boxes"] <= 0:
         raise RuntimeError("dataset has no positive training labels")
-    if dataset_stats["train"]["invalid_labels"] > 0 or dataset_stats["val"]["invalid_labels"] > 0:
-        raise RuntimeError(f"dataset has invalid labels: {dataset_stats}")
+    if datasetStats["train"]["invalid_labels"] > 0 or datasetStats["val"]["invalid_labels"] > 0:
+        raise RuntimeError(f"dataset has invalid labels: {datasetStats}")
 
-    batch = min(batch, max(2, train_count))
-    model_path = pick_model_path(weights_dir)
-
-    project_dir.mkdir(parents=True, exist_ok=True)
-    results_root.mkdir(parents=True, exist_ok=True)
-    ensure_ultralytics_import_path(project_root)
+    batch = min(batch, max(1, trainCount))
+    modelPath = pick_training_model_path(paths, configured_model=yoloConfig.get("baseModel"))
+    projectDir.mkdir(parents=True, exist_ok=True)
+    resultsRoot.mkdir(parents=True, exist_ok=True)
+    ensure_ultralytics_import_path(paths.project_root)
 
     from ultralytics import YOLO
 
-    model = YOLO(str(model_path))
+    print(f"[train] base weights: {modelPath}", flush=True)
+    print(f"[train] dataset train_images={trainCount} val_images={valCount} total_boxes={datasetStats['total_boxes']}", flush=True)
+
+    model = YOLO(str(modelPath))
+    install_progress_callbacks(model)
     result = model.train(
-        data=str(yaml_path),
+        data=str(dataYamlPath),
         epochs=epochs,
         batch=batch,
-        imgsz=imgsz,
-        device=device,
-        workers=workers,
-        project=str(project_dir),
-        name=run_name,
-        exist_ok=True,
+        imgsz=TRAIN_IMAGE_SIZE,
+        device=TRAIN_DEVICE,
+        workers=TRAIN_WORKERS,
+        project=str(projectDir),
+        name=runName,
+        exist_ok=False,
         verbose=True,
-        patience=patience,
-        cos_lr=True,
-        close_mosaic=10,
-        degrees=0.0,
-        translate=0.06,
-        scale=0.35,
-        fliplr=0.5,
-        mosaic=0.20,
-        mixup=0.0,
-        copy_paste=0.0,
+        patience=TRAIN_PATIENCE,
+        cos_lr=TRAIN_COSINE_LR,
+        close_mosaic=TRAIN_CLOSE_MOSAIC,
+        degrees=TRAIN_DEGREES,
+        translate=TRAIN_TRANSLATE,
+        scale=TRAIN_SCALE,
+        fliplr=TRAIN_HORIZONTAL_FLIP,
+        mosaic=TRAIN_MOSAIC,
+        mixup=TRAIN_MIXUP,
+        copy_paste=TRAIN_COPY_PASTE,
+        resume=TRAIN_RESUME,
     )
 
-    save_dir = Path(str(getattr(result, "save_dir", project_dir / run_name)))
-    weights_out = save_dir / "weights"
-    best_weights = weights_out / "best.pt"
-    last_weights = weights_out / "last.pt"
+    saveDir = Path(str(getattr(result, "save_dir", projectDir / runName)))
+    weightsDir = saveDir / "weights"
+    bestWeights = weightsDir / "best.pt"
+    lastWeights = weightsDir / "last.pt"
     summary = {
-        "dataset_root": str(dataset_root),
-        "data_yaml": str(yaml_path),
-        "dataset_stats": dataset_stats,
-        "train_images": train_count,
-        "val_images": val_count,
-        "model": str(model_path),
+        "dataset_root": str(datasetRoot),
+        "data_yaml": str(dataYamlPath),
+        "dataset_stats": datasetStats,
+        "train_images": trainCount,
+        "val_images": valCount,
+        "model": str(modelPath),
         "epochs": epochs,
         "batch": batch,
-        "imgsz": imgsz,
-        "save_dir": str(save_dir),
-        "best_weights": str(best_weights) if best_weights.exists() else "",
-        "last_weights": str(last_weights) if last_weights.exists() else "",
+        "imgsz": TRAIN_IMAGE_SIZE,
+        "run_name": runName,
+        "save_dir": str(saveDir),
+        "best_weights": str(bestWeights) if bestWeights.exists() else "",
+        "last_weights": str(lastWeights) if lastWeights.exists() else "",
     }
-    summary_path = results_root / f"{run_name}_summary.json"
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    (resultsRoot / f"{runName}_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
 
 
 if __name__ == "__main__":
     print(json.dumps(run(), ensure_ascii=False, indent=2))
+
+

@@ -5,6 +5,7 @@
 // 鐟欙綁鍣撮敍姘穿閸?`PIDController.h`閿涘奔璐熻ぐ鎾冲閺傚洣娆㈢悰銉ュ帠閹碘偓娓氭繆绂嗛惃鍕閸ㄥ鈧礁鍤遍弫鐗堝灗閹恒儱褰涙竟鐗堟閵?
 #include "GraduationProject/Core/Controller/PIDController.h"
 
+
 /** @brief 閺嬪嫰鈧姴鍤遍弫?*/
 // 鐟欙綁鍣撮敍姘崇箹娑撯偓鐞涘矁鎯ょ€圭偛缍嬮崜宥喣侀崸妞捐厬閻ㄥ嫬鍙挎担鎾崇杽閻滄壆绮忛懞鍌︾礉娑撹桨绗傞棃銏㈡畱婢圭増妲戦妴浣稿彆瀵繑鍨ㄩ幒褍鍩楀ù浣衡柤閹绘劒绶电€圭偤妾幍褑顢戠拠顓炲綖閵?
 UDroneMovementComponent::UDroneMovementComponent()
@@ -1058,12 +1059,17 @@ FVector UDroneMovementComponent::AttitudeLoop(const FVector& AccelerationCommand
     double AyDes = AccelerationCommand.Y;
     // 鐟欙綁鍣撮敍姘崇箹娑撯偓鐞涘苯锛愰弰搴㈠灇閸涙ɑ鍨ㄧ仦鈧柈銊ュ綁闁?`g`閿涘瞼鏁ゆ禍搴濈箽鐎涙オ閵?
     double g = Parameters.Gravity;
+    const double CurrentYaw = FMath::DegreesToRadians(CurrentState.GetRotator().Yaw);
+    const double CosYaw = FMath::Cos(CurrentYaw);
+    const double SinYaw = FMath::Sin(CurrentYaw);
+    const double BodyAxDes = CosYaw * AxDes + SinYaw * AyDes;
+    const double BodyAyDes = -SinYaw * AxDes + CosYaw * AyDes;
 
     // 娴犲孩婀￠張娑欐寜楠炲啿濮為柅鐔峰鐠侊紕鐣婚張鐔告箿閸婄偓鏋╃憴?
     // 鐟欙綁鍣撮敍姘崇箹娑撯偓鐞涘本濡搁崣鍏呮櫠鐞涖劏鎻蹇曟畱缂佹挻鐏夐崘娆忓弳 `double RollDes`閿涘苯鐣幋?doublerolldes 閻ㄥ嫭娲块弬鑸偓?
-    double RollDes = FMath::Atan2(-AyDes, g);
+    double RollDes = FMath::Atan2(-BodyAyDes, g);
     // 鐟欙綁鍣撮敍姘崇箹娑撯偓鐞涘本濡搁崣鍏呮櫠鐞涖劏鎻蹇曟畱缂佹挻鐏夐崘娆忓弳 `double PitchDes`閿涘苯鐣幋?doublepitchdes 閻ㄥ嫭娲块弬鑸偓?
-    double PitchDes = FMath::Atan2(AxDes, g);
+    double PitchDes = FMath::Atan2(BodyAxDes, g);
 
     // 閼奉亜濮╅崑蹇氬焻鐟欐帒鍑￠崷?ControlUpdate 娑擃厺绮犻惄顔界垼閺傜懓鎮滅拋锛勭暬婵傛枻绱欑€涙ê婀?DesiredYaw閿?
     // 鐟欙綁鍣撮敍姘崇箹娑撯偓鐞涘苯锛愰弰搴㈠灇閸涙ɑ鍨ㄧ仦鈧柈銊ュ綁闁?`YawDes`閿涘瞼鏁ゆ禍搴濈箽鐎涙Χawdes閵?

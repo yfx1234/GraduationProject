@@ -11,8 +11,5 @@ public class GraduationProject : ModuleRules
 			"RenderCore", "RHI", "ImageWrapper",
 			"CinematicCamera"
 		});
-		PrivateDependencyModuleNames.AddRange(new string[] {
-			"Slate", "SlateCore", "UMG"
-		});
 	}
 }

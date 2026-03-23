@@ -77,9 +77,12 @@ void ACameraPawn::BeginPlay()
     // 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
     {
         // 解释：这一行落实当前模块中的具体实现细节，为上面的声明、公式或控制流程提供实际执行语句。
-        PC->bShowMouseCursor = false;
+        FInputModeGameAndUI Mode;
+        Mode.SetHideCursorDuringCapture(false);
+        Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+        PC->bShowMouseCursor = true;
         // 解释：调用 `SetInputMode` 执行当前步骤需要的功能逻辑。
-        PC->SetInputMode(FInputModeGameOnly());
+        PC->SetInputMode(Mode);
     // 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
     }
 // 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
@@ -719,3 +722,5 @@ ADronePawn* ACameraPawn::ResolveActiveDrone(bool bAutoSelect)
     return nullptr;
 // 解释：这一行用于开始或结束当前作用域，控制类、函数或条件块的边界。
 }
+
+

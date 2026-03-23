@@ -3,46 +3,49 @@
 import json
 import socket
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
+
 
 class TCPClient:
     def __init__(
         self,
-        host="127.0.0.1",
-        port=9000,
-        timeout=10.0,
-        auto_connect=True,
+        host: str = "127.0.0.1",
+        port: int = 9000,
+        timeout: float = 10.0,
+        auto_connect: bool = True,
+        retry_attempts: int = 2,
+        retry_delay: float = 0.2,
     ) -> None:
         self.host = host
         self.port = port
         self.timeout = timeout
-        self._socket = None
+        self.retry_attempts = max(1, int(retry_attempts))
+        self.retry_delay = max(0.0, float(retry_delay))
+        self._socket: socket.socket | None = None
         self.receive_buffer = b""
         if auto_connect:
             self.connect()
 
-    # 判断是否连接
     def is_connected(self) -> bool:
         return self._socket is not None
 
-    # 尝试连接
     def connect(self) -> bool:
         self.disconnect()
         try:
-            sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
-        except OSError as exc:
-            print(f"[ERROR] failed to connect to {self.host}:{self.port}: {exc}")
+            clientSocket = socket.create_connection((self.host, self.port), timeout=self.timeout)
+            clientSocket.settimeout(self.timeout)
+        except OSError as error:
+            print(f"[ERROR] failed to connect to {self.host}:{self.port}: {error}")
             self.disconnect()
             return False
 
-        self._socket = sock
+        self._socket = clientSocket
         self.receive_buffer = b""
         print(f"[INFO] connected to {self.host}:{self.port}")
         return True
 
-    # 关闭连接
     def disconnect(self) -> None:
         if self._socket is not None:
             try:
@@ -52,31 +55,32 @@ class TCPClient:
         self._socket = None
         self.receive_buffer = b""
 
-    # 接收一行数据
-    def receive_one_message(self) -> Optional[str]:
+    def receive_one_message(self) -> str | None:
         if self._socket is None:
             return None
 
-        deadline = time.time() + self.timeout
+        deadline = time.monotonic() + self.timeout
         while True:
-            newline_index = self.receive_buffer.find(b"\n")
-            if newline_index >= 0:
-                message = self.receive_buffer[:newline_index]
-                self.receive_buffer = self.receive_buffer[newline_index + 1 :]
+            newlineIndex = self.receive_buffer.find(b"\n")
+            if newlineIndex >= 0:
+                message = self.receive_buffer[:newlineIndex]
+                self.receive_buffer = self.receive_buffer[newlineIndex + 1 :]
                 text = message.decode("utf-8", errors="replace").strip()
                 if text:
                     return text
                 continue
 
-            if time.time() >= deadline:
+            if time.monotonic() >= deadline:
                 raise TimeoutError("Response timeout")
 
-            chunk = self._socket.recv(4096)
+            try:
+                chunk = self._socket.recv(4096)
+            except socket.timeout as error:
+                raise TimeoutError("Response timeout") from error
             if not chunk:
                 return None
             self.receive_buffer += chunk
 
-    # 接收消息
     def receive_message(self) -> JsonDict:
         raw = self.receive_one_message()
         if raw is None:
@@ -91,23 +95,25 @@ class TCPClient:
             return value
         return {"status": "error", "message": "Response is not a JSON object", "raw": value}
 
-    # 发送消息
     def send_message(self, payload: JsonDict) -> JsonDict:
         if not isinstance(payload, dict):
             return {"status": "error", "message": "Payload must be a JSON object"}
 
         message = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
-        attempts = 2
+        last_error = ""
 
-        for attempt in range(attempts):
+        for attempt in range(self.retry_attempts):
             if self._socket is None and not self.connect():
-                continue
+                last_error = f"connect failed to {self.host}:{self.port}"
             else:
                 try:
                     assert self._socket is not None
                     self._socket.sendall(message.encode("utf-8"))
                     return self.receive_message()
-                except (OSError, TimeoutError) as exc:
+                except (OSError, TimeoutError) as error:
+                    last_error = str(error) or error.__class__.__name__
                     self.disconnect()
-            time.sleep(0.2)
-        return {"status": "error", "message": "Send message failed"}
+            if attempt + 1 < self.retry_attempts and self.retry_delay > 0.0:
+                time.sleep(self.retry_delay)
+
+        return {"status": "error", "message": f"Send message failed: {last_error}" if last_error else "Send message failed"}
